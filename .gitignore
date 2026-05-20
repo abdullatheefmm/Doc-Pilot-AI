@@ -1,71 +1,21 @@
-# ─────────────────────────────────────────────
-#  Doc-Pilot-AI  —  Root .gitignore
-# ─────────────────────────────────────────────
-
-# ── Sensitive / secret files ──────────────────
+# Sensitive / secret
 .env
-.env.*
-*.env
 
-# ── Project-specific exclusions ───────────────
+# Project-specific exclusions
 README.md
 Documentation/
 requirements.txt
 run_backend.ps1
 run_frontend.ps1
 
-# ── Python virtual environment ────────────────
+# Python
 .venv/
-venv/
-env/
-ENV/
-
-# ── Python cache / compiled files ─────────────
 __pycache__/
-*.py[cod]
-*$py.class
-*.pyo
-*.pyd
-*.egg
-*.egg-info/
-dist/
-build/
-*.spec
 
-# ── Backend runtime data ──────────────────────
-Backend/data/*.db
-Backend/data/fastapi_docs/
+# Backend runtime data
+Backend/data/
 
-# ── Model / HuggingFace cache ─────────────────
-*.bin
-*.safetensors
-*.ot
-*.onnx
-models/
-.cache/
-
-# ── Logs ──────────────────────────────────────
-*.log
-logs/
-
-# ── OS artefacts ──────────────────────────────
-.DS_Store
-Thumbs.db
-desktop.ini
-
-# ── IDE / editor ──────────────────────────────
-.vscode/
-!.vscode/extensions.json
-.idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# ── Node (frontend lives in ./frontend/) ──────
+# Frontend
 frontend/node_modules/
 frontend/dist/
-frontend/dist-ssr/
-frontend/*.local
 frontend/README.md
