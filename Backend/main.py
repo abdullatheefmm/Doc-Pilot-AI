@@ -10,9 +10,11 @@ from typing import Literal
 
 import os
 
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from auth import require_admin, get_current_user, require_active_user, verify_user_password
+from supabase_client import supabase
 from pydantic import BaseModel, Field
 from pypdf import PdfReader
 
@@ -56,10 +58,15 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1)
     session_id: str | None = None
+    user_id: str | None = None
+    user_role: str = "general"
     top_k: int = 4
     threshold: float = 0.15
     retrieval_mode: str = "hybrid"
     domain: str | None = None
+    model: str | None = None
+    incognito: bool = False
+    search_mode: str = "internal"
 
 
 class SourceItem(BaseModel):
@@ -111,6 +118,7 @@ class UrlIngestRequest(BaseModel):
     url: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
     domain: str | None = None
+    user_id: str | None = None
 
 
 # ─── Helpers ────────────────────────────────────────────────────────
@@ -121,11 +129,10 @@ def ensure_directories() -> None:
 
 
 def _extract_pdf(file_path: Path) -> str:
-    """Extract text from a PDF file."""
+    """Extract text from a PDF file using PyMuPDF and OCR for images."""
     try:
-        reader = PdfReader(str(file_path))
-        pages = [page.extract_text() or "" for page in reader.pages]
-        return "\n".join(pages)
+        from vision_extractor import process_pdf_with_vision
+        return process_pdf_with_vision(file_path)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"PDF extraction failed: {exc}") from exc
 
@@ -258,6 +265,28 @@ def ask_question(request: QueryRequest):
     session_id = request.session_id or str(uuid.uuid4())
 
     try:
+        if request.search_mode == "web":
+            import web_agent
+            web_generator = web_agent.stream_web_answer(request.query)
+            citations = next(web_generator)
+            answer_text = "".join(list(web_generator))
+            if not request.incognito:
+                rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
+                rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
+            return {
+                "answer": answer_text,
+                "sources": [{"document": c, "text": "Web Result"} for c in citations],
+                "confidence": 0.8,
+                "session_id": session_id,
+                "rewritten_query": request.query,
+                "intent": "web_search",
+                "cached": False,
+                "response_time_ms": 0,
+                "timing": {"rewrite_ms": 0, "retrieve_ms": 0, "generate_ms": 0},
+                "retrieval_scores": [],
+                "domain": "web",
+            }
+            
         return rag_qa.generate_answer(
             query=request.query.strip(),
             session_id=session_id,
@@ -265,6 +294,10 @@ def ask_question(request: QueryRequest):
             threshold=request.threshold,
             mode=request.retrieval_mode,
             domain=request.domain,
+            user_id=request.user_id or "",
+            user_role=request.user_role,
+            model=request.model,
+            search_mode=request.search_mode,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -277,10 +310,49 @@ def ask_question_stream(request: QueryRequest):
     """Stream answer tokens via Server-Sent Events."""
     session_id = request.session_id or str(uuid.uuid4())
 
+    if request.search_mode == "web":
+        import web_agent
+        def web_stream():
+            web_generator = web_agent.stream_web_answer(request.query)
+            citations = next(web_generator)
+            
+            meta = {
+                "type": "meta",
+                "confidence": 0.8,
+                "intent": "web_search",
+                "sources": [{"document": c, "text": "Web Result"} for c in citations],
+                "retrieval_scores": [],
+                "rewritten_query": request.query,
+                "session_id": session_id,
+                "retrieve_ms": 0,
+                "domain": "web",
+            }
+            yield f"data: {json.dumps(meta)}\n\n"
+            
+            t0 = _time.perf_counter()
+            full_answer = []
+            for token in web_generator:
+                full_answer.append(token)
+                yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+                
+            generate_ms = (_time.perf_counter() - t0) * 1000
+            
+            answer_text = "".join(full_answer)
+            if not request.incognito:
+                rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
+                rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
+                
+            done = {"type": "done", "generate_ms": round(generate_ms, 1)}
+            yield f"data: {json.dumps(done)}\n\n"
+        return StreamingResponse(web_stream(), media_type="text/event-stream")
+
+    # Internal RAG Mode
     history_window = rag_qa.build_history_window(session_id)
     rewritten_query = rag_qa.rewrite_query(request.query.strip(), history_window)
     results, retrieve_ms = retrieval.retrieve(
         rewritten_query,
+        user_id=request.user_id,
+        user_role=request.user_role,
         top_k=request.top_k,
         threshold=request.threshold,
         mode=request.retrieval_mode,
@@ -316,8 +388,9 @@ def ask_question_stream(request: QueryRequest):
         generate_ms = (_time.perf_counter() - t0) * 1000
 
         answer_text = "".join(full_answer)
-        rag_qa.append_to_history(session_id, "user", request.query.strip())
-        rag_qa.append_to_history(session_id, "assistant", answer_text)
+        if not request.incognito:
+            rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
+            rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
 
         done = {"type": "done", "generate_ms": round(generate_ms, 1)}
         yield f"data: {json.dumps(done)}\n\n"
@@ -348,9 +421,9 @@ async def upload_document(
     file: UploadFile = File(...),
     password: str = Query(..., min_length=1),
     domain: str = Query("general"),
+    user: dict = Depends(require_active_user),
 ):
-    if password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=403, detail="Invalid admin password.")
+    verify_user_password(user["email"], password)
 
     ensure_directories()
 
@@ -372,14 +445,33 @@ async def upload_document(
     # Assign domain
     knowledge_domains.assign_document_domain(normalized_path.name, domain)
 
-    # Generate AI summary
+    # Log to audit_logs
+    if supabase:
+        try:
+            supabase.table("audit_logs").insert({
+                "action_type": "upload_document",
+                "details": {"filename": normalized_path.name, "original_filename": file.filename, "domain": domain, "email": user["email"]}
+            }).execute()
+        except Exception as e:
+            print(f"Failed to log upload audit: {e}")
+
+    # Generate AI summary & Trust Score
     summary = ""
     try:
-        from summarization import generate_summary
+        from summarization import generate_summary, generate_trust_score
+        import trust_metrics
+        import graph_extraction
         summary = generate_summary(extracted_text)
         knowledge_domains.save_document_summary(normalized_path.name, summary)
-    except Exception:
-        pass
+        
+        trust_score = generate_trust_score(extracted_text)
+        trust_metrics.save_ai_score(normalized_path.name, trust_score)
+        
+        # Process graph entities dynamically
+        user_display_name = user.get("full_name") or user.get("email")
+        graph_extraction.process_document_for_graph(normalized_path.name, extracted_text, domain, user_display_name)
+    except Exception as e:
+        print(f"Summary/Trust/Graph generation failed: {e}")
 
     retrieval.refresh_index()
     answer_cache.invalidate_all()
@@ -394,32 +486,98 @@ async def upload_document(
 
 
 @app.get("/api/documents")
-def get_documents():
+async def get_documents():
     docs = retrieval.get_document_inventory()
     domains = knowledge_domains.get_all_document_domains()
     summaries = knowledge_domains.get_all_summaries()
+    
+    import analytics
+    import trust_metrics
+    access_counts = analytics.get_document_access_counts()
+    trust_metrics_map = trust_metrics.get_all_trust_metrics()
+    
+    upload_metadata = {}
+    if supabase:
+        try:
+            res = supabase.table("audit_logs").select("created_at, user_id, details").eq("action_type", "upload_document").order("created_at", desc=False).execute()
+            for log in res.data:
+                details = log.get("details", {})
+                if isinstance(details, str):
+                    try:
+                        import json
+                        details = json.loads(details)
+                    except:
+                        details = {}
+                filename = details.get("filename") if isinstance(details, dict) else None
+                if filename:
+                    # Overwrite so we keep the oldest or newest? newest is fine
+                    upload_metadata[filename] = {
+                        "uploaded_by": details.get("email", log.get("user_id", "Unknown")),
+                        "date": log.get("created_at", "Unknown").split("T")[0]
+                    }
+        except Exception as e:
+            print(f"Failed to fetch upload metadata: {e}")
+
     for doc in docs:
-        doc["domain"] = domains.get(doc["name"], "general")
-        doc["summary"] = summaries.get(doc["name"], "")
+        doc_name = doc["name"]
+        doc["domain"] = domains.get(doc_name, "general")
+        doc["summary"] = summaries.get(doc_name, "")
+        meta = upload_metadata.get(doc_name, {})
+        doc["uploaded_by"] = meta.get("uploaded_by", "Unknown")
+        doc["date"] = meta.get("date", "Unknown")
+        doc["access_count"] = access_counts.get(doc_name, 0)
+        doc["trust_metrics"] = trust_metrics_map.get(doc_name, {"document_name": doc_name, "upvotes": 0, "downvotes": 0, "ai_score": 85})
+        
     return {"documents": docs}
 
 
+@app.post("/api/documents/{doc_name}/vote")
+async def vote_document(doc_name: str, payload: dict):
+    vote_type = payload.get("vote")
+    if vote_type in ("up", "down"):
+        import trust_metrics
+        trust_metrics.vote_document(doc_name, vote_type)
+    return {"status": "ok"}
+
+
 @app.delete("/api/documents/{filename}")
-def delete_document(filename: str, password: str = Query(..., min_length=1)):
-    if password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=403, detail="Invalid admin password.")
+def delete_document(filename: str, password: str = Query(..., min_length=1), user: dict = Depends(require_active_user)):
+    verify_user_password(user["email"], password)
 
     file_path = DATA_DIR / filename
-    if not file_path.exists():
-        raise HTTPException(status_code=404, detail="File not found")
+    if file_path.exists():
+        try:
+            file_path.unlink()
+        except Exception:
+            pass
 
-    file_path.unlink()
+    for f in UPLOAD_DIR.glob(f"{Path(filename).stem}.*"):
+        try:
+            f.unlink()
+        except Exception:
+            pass
 
-    for f in UPLOAD_DIR.glob(f"{file_path.stem}.*"):
-        f.unlink()
-
+    # Manually delete vectors from Supabase
+    retrieval.delete_document_from_index(filename)
+    knowledge_domains.delete_document_metadata(filename)
+    
+    import graph_extraction
+    graph_extraction.remove_document_from_graph(filename)
+    
     retrieval.refresh_index()
     answer_cache.invalidate_all()
+    
+    if supabase:
+        try:
+            supabase.table("audit_logs").insert({
+                "action_type": "delete_document",
+                "user_id": user["email"],
+                "domain": "general",
+                "details": {"filename": filename}
+            }).execute()
+        except Exception:
+            pass
+            
     return {"status": "deleted", "filename": filename}
 
 
@@ -446,13 +604,28 @@ def ingest_url(request: UrlIngestRequest):
     # Assign domain
     knowledge_domains.assign_document_domain(filename, request.domain or "general")
 
-    # Generate summary
+    # Log to audit_logs
+    if supabase:
+        try:
+            supabase.table("audit_logs").insert({
+                "action_type": "upload_document",
+                "details": {"filename": filename, "original_filename": request.url, "domain": request.domain or "general", "email": request.user_id or "Unknown"}
+            }).execute()
+        except Exception as e:
+            print(f"Failed to log upload audit: {e}")
+
+    # Generate AI summary
     try:
         from summarization import generate_summary
         summary = generate_summary(text)
         knowledge_domains.save_document_summary(filename, summary)
     except Exception:
         pass
+
+    retrieval.refresh_index()
+    answer_cache.invalidate_all()
+    
+    return {"status": "success", "filename": filename}
 
     retrieval.refresh_index()
     answer_cache.invalidate_all()
@@ -468,7 +641,7 @@ def ingest_url(request: UrlIngestRequest):
 # ─── Knowledge Domains ─────────────────────────────────────────────
 
 @app.get("/api/domains")
-def list_domains():
+async def list_domains():
     domains = knowledge_domains.list_domains()
     doc_domains = knowledge_domains.get_all_document_domains()
     for d in domains:
@@ -489,6 +662,10 @@ def assign_domain(doc_name: str, domain: str = Query(..., min_length=1)):
 
 
 # ─── Chat History ───────────────────────────────────────────────────
+
+@app.get("/api/history/sessions")
+def get_sessions(user_id: str | None = None):
+    return {"sessions": rag_qa.get_all_sessions(user_id)}
 
 @app.get("/api/history")
 def get_history(session_id: str = Query(..., min_length=1)):
@@ -558,7 +735,158 @@ def export_knowledge_base():
         lines.append(f"- **Summary:** {summary}\n")
     return {"markdown": "\n".join(lines)}
 
+@app.get("/api/admin/analytics")
+def get_admin_analytics(user: dict = Depends(require_admin)):
+    import analytics
+    from datetime import datetime, timedelta
+    from supabase_client import supabase
+    
+    if not supabase: return {"status": "error"}
+    
+    now = datetime.utcnow()
+    last_week = (now - timedelta(days=7)).isoformat()
+    
+    logs_res = supabase.table("audit_logs").select("*").gte("created_at", last_week).execute()
+    queries = [l for l in logs_res.data if l["action_type"] == "chat_query"]
+    
+    dates = {}
+    for d in range(7):
+        date_str = (now - timedelta(days=6-d)).strftime("%Y-%m-%d")
+        dates[date_str] = 0
+        
+    for q in queries:
+        day = q["created_at"].split("T")[0]
+        if day in dates: dates[day] += 1
+        
+    trend = [{"date": k, "queries": v} for k, v in dates.items()]
+    
+    cost_res = supabase.table("audit_logs").select("details").eq("action_type", "chat_query").execute()
+    total_tokens = sum((l.get("details") or {}).get("tokens_used", 0) for l in cost_res.data)
+    est_cost = (total_tokens / 1000) * 0.002
+    
+    # Calculate knowledge gaps from low confidence queries
+    low_conf = [q for q in queries if (q.get("details") or {}).get("confidence", 1.0) < 0.5]
+    gap_counts = {}
+    for q in low_conf:
+        query_text = (q.get("details") or {}).get("query", "Unknown")
+        gap_counts[query_text] = gap_counts.get(query_text, 0) + 1
+    
+    gap_summary = [{"query": k, "misses": v, "confidence": (1 - min(1.0, v*0.1))*100} for k, v in list(gap_counts.items())[:5]]
+    
+    # Calculate top documents
+    doc_counts = {}
+    for q in queries:
+        docs = (q.get("details") or {}).get("retrieved_docs", [])
+        for d in docs:
+            doc_counts[d] = doc_counts.get(d, 0) + 1
+            
+    doc_summary = [{"doc": k, "hits": v} for k, v in sorted(doc_counts.items(), key=lambda x: x[1], reverse=True)[:5]]
+    
+    return {
+        "trend": trend,
+        "metrics": {
+            "total_queries": len(queries),
+            "estimated_cost": round(est_cost, 4),
+            "total_tokens": total_tokens,
+            "cache_hits": len([q for q in queries if (q.get("details") or {}).get("cache_hit")])
+        },
+        "knowledge_gaps": gap_summary,
+        "top_documents": doc_summary
+    }
+
+@app.get("/api/knowledge-graph")
+def get_knowledge_graph(domain: str = Query(None), view_type: str = Query(None), user: dict = Depends(require_active_user)):
+    import graph_extraction
+    user_role = (user.get("role") or "general").lower()
+    is_super_admin = user_role == "super_admin"
+    user_email = user.get("email") or ""
+    
+    target_domain = domain.lower() if domain else user_role
+    return graph_extraction.get_dynamic_graph_for_user(target_domain, is_super_admin, user_email, view_type)
+
+@app.get("/api/admin/audit_logs")
+def get_audit_logs(user: dict = Depends(require_admin)):
+    from supabase_client import supabase
+    if not supabase: return {"status": "error"}
+    res = supabase.table("audit_logs").select("*").order("created_at", desc=True).limit(500).execute()
+    return {"logs": res.data}
+
+@app.delete("/api/admin/audit_logs/purge")
+def purge_audit_logs(days: int = 30, user: dict = Depends(require_admin)):
+    from supabase_client import supabase
+    from datetime import datetime, timedelta
+    if not supabase: return {"status": "error"}
+    cutoff_date = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    supabase.table("audit_logs").delete().lte("created_at", cutoff_date).execute()
+    return {"status": "success"}
+
+@app.delete("/api/admin/audit_logs/{log_id}")
+def delete_audit_log(log_id: str, user: dict = Depends(require_admin)):
+    from supabase_client import supabase
+    if not supabase: return {"status": "error"}
+    supabase.table("audit_logs").delete().eq("id", log_id).execute()
+    return {"status": "success"}
+
+@app.post("/api/admin/auto_suspend")
+def toggle_auto_suspend(req: dict, user: dict = Depends(require_admin)):
+    # Persist this setting in db or memory
+    # For now returning success
+    enabled = req.get("enabled", False)
+    return {"status": "success", "enabled": enabled}
+
+@app.get("/api/auth/resolve-id")
+def resolve_auth_id(emp_id: str, is_admin_login: str = "false"):
+    from supabase_client import supabase
+    if not supabase:
+        raise HTTPException(status_code=500, detail="Supabase client not configured")
+        
+    res = supabase.table("user_profiles").select("email, role").eq("employee_id", emp_id).execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Not Found")
+        
+    user_data = res.data[0]
+    if is_admin_login == "true" and user_data.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Not an admin")
+        
+    return {"email": user_data.get("email")}
+
+@app.get("/api/admin/users")
+def get_users(user: dict = Depends(require_admin)):
+    from supabase_client import supabase
+    if not supabase: return {"status": "error"}
+    res = supabase.table("user_profiles").select("*").execute()
+    return {"users": res.data}
+
+@app.delete("/api/admin/users/{user_id}")
+def delete_user(user_id: str, user: dict = Depends(require_admin)):
+    from supabase_client import supabase
+    if not supabase: return {"status": "error"}
+    supabase.table("user_profiles").delete().eq("user_id", user_id).execute()
+    return {"status": "success"}
+
+from pydantic import BaseModel
+class StatusUpdate(BaseModel):
+    status: str
+
+@app.put("/api/admin/users/{user_id}/status")
+def update_user_status(user_id: str, status_data: StatusUpdate, user: dict = Depends(require_admin)):
+    from supabase_client import supabase
+    if not supabase: return {"status": "error"}
+    
+    if status_data.status not in ["active", "pending", "revoked"]:
+        raise HTTPException(status_code=400, detail="Invalid status")
+        
+    supabase.table("user_profiles").update({"status": status_data.status}).eq("user_id", user_id).execute()
+    return {"status": "success"}
+
+
+@app.get("/api/admin/security_alerts")
+def get_security_alerts(user: dict = Depends(require_admin)):
+    from supabase_client import supabase
+    if not supabase: return {"status": "error"}
+    res = supabase.table("audit_logs").select("*").in_("action_type", ["unauthorized_access", "bulk_download", "suspicious_login"]).order("created_at", desc=True).limit(50).execute()
+    return {"alerts": res.data}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True, access_log=False, log_level="info")

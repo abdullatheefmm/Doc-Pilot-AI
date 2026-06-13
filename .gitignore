@@ -1,21 +1,34 @@
-# Sensitive / secret
+# Secrets
 .env
+frontend/.env
 
-# Project-specific exclusions
-README.md
-Documentation/
-requirements.txt
-run_backend.ps1
-run_frontend.ps1
+# AI & IDE Workspaces
+brain/
+.vscode/
 
-# Python
+# Python Environment
 .venv/
-__pycache__/
 
-# Backend runtime data
+# Backend Caches & Local Data
+Backend/__pycache__/
 Backend/data/
+Backend/mlflow.db
 
-# Frontend
+# Frontend Dependencies & Build
 frontend/node_modules/
 frontend/dist/
-frontend/README.md
+
+# Docker (Unimplemented)
+docker-compose.yml
+Backend/Dockerfile
+frontend/Dockerfile
+
+# OS Generated Files & Fallback Logs
+.DS_Store
+Thumbs.db
+npm-debug.log*
+
+# Temporary/Local Scripts
+*.ps1
+restore.py
+

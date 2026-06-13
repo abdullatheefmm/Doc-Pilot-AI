@@ -1,13 +1,61 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
+import mermaid from 'mermaid';
 
-/* ── Confidence Gauge (SVG ring) ─────────────────────────────── */
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  themeVariables: {
+    primaryColor: '#ff7a18',
+    primaryTextColor: '#fff',
+    primaryBorderColor: '#ff7a18',
+    lineColor: '#ffb347',
+    secondaryColor: '#3b82f6',
+    tertiaryColor: '#1e1e2f',
+    fontFamily: 'Inter'
+  }
+});
+
+export function MermaidDiagram({ chart, theme = 'default' }) {
+  const containerRef = useRef(null);
+  
+  useEffect(() => {
+    if (containerRef.current && chart) {
+      // Re-initialize theme dynamically based on user prop if needed
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: theme === 'dark' ? 'dark' : theme === 'forest' ? 'forest' : 'base',
+        themeVariables: theme === 'default' ? {
+          primaryColor: '#ff7a18',
+          primaryTextColor: '#fff',
+          primaryBorderColor: '#ff7a18',
+          lineColor: '#ffb347',
+          secondaryColor: '#3b82f6',
+          tertiaryColor: '#1e1e2f',
+          fontFamily: 'Inter'
+        } : undefined
+      });
+      
+      const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+      mermaid.render(id, chart)
+        .then(({ svg }) => {
+          if (containerRef.current) containerRef.current.innerHTML = svg;
+        })
+        .catch(e => {
+          console.error("Mermaid error:", e);
+          if (containerRef.current) containerRef.current.innerHTML = `<pre style="color:var(--danger-color); font-size: 0.8rem;">Mermaid Syntax Error: ${e.message}</pre>`;
+        });
+    }
+  }, [chart, theme]);
+
+  return <div className="mermaid-container" ref={containerRef} style={{ padding: '16px', background: 'var(--card-bg-strong)', borderRadius: '12px', overflowX: 'auto', border: '1px solid var(--border-color)', margin: '16px 0', display: 'flex', justifyContent: 'center' }} />;
+}
 export function ConfidenceGauge({ value = 0, size = 52 }) {
   const r = (size - 8) / 2;
   const circ = 2 * Math.PI * r;
   const offset = circ * (1 - Math.min(1, Math.max(0, value)));
   const color = value >= 0.7 ? 'var(--success-color)' : value >= 0.4 ? 'var(--warning-color)' : 'var(--danger-color)';
   return (
-    <div className="confidence-gauge" style={{ width: size, height: size }}>
+    <div className="confidence-gauge" style={{ width: size, height: size, position: 'relative' }}>
       <svg width={size} height={size}>
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--border-color)" strokeWidth="4" />
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="4"
@@ -177,7 +225,7 @@ export function renderMarkdown(text) {
   if (!text) return null;
   const lines = text.split('\n');
   const elements = [];
-  let inCodeBlock = false, codeLines = [], codeKey = 0;
+  let inCodeBlock = false, codeLanguage = '', codeLines = [], codeKey = 0;
 
   const processInline = (line) => {
     const parts = [];
@@ -215,11 +263,18 @@ export function renderMarkdown(text) {
     const line = lines[i];
     if (line.startsWith('```')) {
       if (inCodeBlock) {
-        elements.push(<pre key={`code-${codeKey++}`}><code>{codeLines.join('\n')}</code></pre>);
+        if (codeLanguage === 'mermaid') {
+          const storedTheme = window.localStorage.getItem('docpilot-chart-theme') || 'default';
+          elements.push(<MermaidDiagram key={`mermaid-${codeKey++}`} chart={codeLines.join('\n')} theme={storedTheme} />);
+        } else {
+          elements.push(<pre key={`code-${codeKey++}`}><code>{codeLines.join('\n')}</code></pre>);
+        }
         codeLines = [];
         inCodeBlock = false;
+        codeLanguage = '';
       } else {
         inCodeBlock = true;
+        codeLanguage = line.slice(3).trim().toLowerCase();
       }
       continue;
     }
@@ -235,7 +290,12 @@ export function renderMarkdown(text) {
     }
   }
   if (inCodeBlock && codeLines.length) {
-    elements.push(<pre key={`code-${codeKey}`}><code>{codeLines.join('\n')}</code></pre>);
+    if (codeLanguage === 'mermaid') {
+      const storedTheme = window.localStorage.getItem('docpilot-chart-theme') || 'default';
+      elements.push(<MermaidDiagram key={`mermaid-${codeKey}`} chart={codeLines.join('\n')} theme={storedTheme} />);
+    } else {
+      elements.push(<pre key={`code-${codeKey}`}><code>{codeLines.join('\n')}</code></pre>);
+    }
   }
   return elements;
 }

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>DocPilot AI - Exhaustive Project Presentation</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/night.min.css" id="theme">
+  
+  <style>
+    /* Global fit-to-screen settings */
+    body, html { height: 100%; overflow: hidden; margin: 0; padding: 0; }
+    .reveal { font-size: 20px; }
+    .reveal h1, .reveal h2, .reveal h3 { color: #38bdf8; margin-bottom: 8px; text-transform: none; }
+    .reveal h2 { font-size: 1.4em; border-bottom: 1px solid #333; padding-bottom: 5px;}
+    .reveal .accent { color: #f59e0b; }
+    .reveal .slide-body { font-size: 0.8em; text-align: left; line-height: 1.4; padding: 0 10px; }
+    
+    /* Layouts */
+    .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
+    .grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .card { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); padding: 12px; border-radius: 8px; }
+    .card h4 { color: #f97316; margin-top: 0; font-size: 1.1em; margin-bottom: 5px; }
+    .card p { margin: 0 0 5px 0; font-size: 0.9em; }
+    
+    /* Mermaid */
+    .mermaid-container { background: #fff; padding: 5px; border-radius: 8px; margin-top: 10px; display: flex; justify-content: center; }
+    
+    .reveal ul { margin: 0; padding-left: 20px; }
+    .reveal li { margin-bottom: 5px; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <div class="reveal">
+    <div class="slides">
+
+      <!-- Slide 1: Title & Introduction -->
+      <section>
+        <img src="https://upload.wikimedia.org/wikipedia/commons/8/8a/Google_Gemini_logo.svg" alt="AI" style="width: 70px; filter: brightness(0) invert(1);" />
+        <h2>DocPilot AI</h2>
+        <h4 style="color: #cbd5e1;">Enterprise Knowledge Management System</h4>
+        <div class="slide-body" style="text-align: center; margin-top: 20px;">
+          <p>An exhaustive breakdown of every feature, its theoretical purpose, and actual technical working.</p>
+        </div>
+      </section>
+
+      <!-- Slide 2: Feature 1 - Hybrid Retrieval Strategy -->
+      <section>
+        <h2>Feature 1: Hybrid Retrieval Strategy</h2>
+        <div class="slide-body">
+          <p><strong>Purpose:</strong> To find the most relevant document chunks based on a user's question, handling both concepts (semantics) and exact words (keywords).</p>
+          <div class="grid-container">
+            <div class="card">
+              <h4>Theory</h4>
+              <ul>
+                <li><strong>FAISS (Dense):</strong> Understands meaning. Matches "PTO" with "Vacation".</li>
+                <li><strong>BM25 (Sparse):</strong> Understands exact keywords. Essential for finding specific product IDs or names.</li>
+                <li><strong>RRF (Reciprocal Rank Fusion):</strong> A mathematical algorithm that merges the scores of both searches to rank the absolute best results.</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h4>Actual Working (Modules used)</h4>
+              <p>Implemented in <code>retrieval.py</code> and <code>embeddings.py</code>.</p>
+              <ul>
+                <li>The user query is vectorized using the local <code>all-MiniLM-L6-v2</code> model.</li>
+                <li>FAISS executes a Cosine Similarity search on the vector DB.</li>
+                <li>BM25 executes a keyword frequency search.</li>
+                <li>The backend combines both arrays using the RRF formula to determine the final chunks.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 3: Feature 2 - Top K & Similarity Sliders -->
+      <section>
+        <h2>Feature 2: Search Tuning (Top K & Similarity)</h2>
+        <div class="slide-body">
+          <p><strong>Purpose:</strong> Allows the user to control the strictness of the search and the amount of context fed to the AI.</p>
+          <div class="grid-container">
+            <div class="card">
+              <h4>Theory</h4>
+              <ul>
+                <li><strong>Top K:</strong> Defines how many document snippets are retrieved. A higher K gives the LLM more context but increases latency and token costs.</li>
+                <li><strong>Similarity Match:</strong> A threshold that acts as a filter. If a document's semantic score is below this threshold, it is discarded as "irrelevant."</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h4>Actual Working (Modules used)</h4>
+              <p>Implemented in <code>retrieval.py</code> and <code>App.jsx</code>.</p>
+              <ul>
+                <li>The React UI sliders send <code>top_k</code> and <code>threshold</code> integer/float values in the API payload.</li>
+                <li>The backend FAISS index returns results, but any result with a distance score below the <code>threshold</code> (e.g., 0.15) is dropped.</li>
+                <li>The list is sliced to <code>top_k</code> elements before sending to the LLM.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 4: Feature 3 - Knowledge Domains -->
+      <section>
+        <h2>Feature 3: Knowledge Domains</h2>
+        <div class="slide-body">
+          <p><strong>Purpose:</strong> To logically partition enterprise data (e.g., Engineering, HR, Legal). This prevents the AI from mixing up "Company Policy" with "Technical Documentation".</p>
+          <div class="grid-container">
+            <div class="card">
+              <h4>Theory</h4>
+              <ul>
+                <li>Isolating the search space drastically reduces false positives (hallucinations).</li>
+                <li>It acts as a metadata filter applied <em>before</em> the vector search executes.</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h4>Actual Working (Modules used)</h4>
+              <p>Implemented in <code>knowledge_domains.py</code> & <code>KnowledgeBasePanel.jsx</code>.</p>
+              <ul>
+                <li>When a file is uploaded, it is assigned a domain tag in a SQLite database.</li>
+                <li>During retrieval, if a user selects "HR", the FAISS index generates an <code>allowed_indices</code> mask, ignoring all non-HR vectors during the search calculation.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 5: Feature 4 - Document Ingestion -->
+      <section>
+        <h2>Feature 4: File & URL Ingestion</h2>
+        <div class="slide-body">
+          <p><strong>Purpose:</strong> The pipeline for ingesting raw unstructured data into the RAG system.</p>
+          <div class="grid-container">
+            <div class="card">
+              <h4>Theory</h4>
+              <ul>
+                <li>Raw files or websites cannot be directly read by a vector DB.</li>
+                <li>They must be parsed into pure text, then chunked into overlapping segments (to preserve sentence boundaries), and finally vectorized.</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h4>Actual Working (Modules used)</h4>
+              <p>Implemented in <code>ingestion.py</code> & <code>chunking.py</code>.</p>
+              <ul>
+                <li>The FastAPI endpoint receives a PDF or URL.</li>
+                <li>Text extractors pull the raw text, which is passed to <code>smart_chunk_text()</code>.</li>
+                <li>It breaks the text into 500-token blocks with a 50-token overlap, then regenerates the FAISS index.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 6: Feature 5 - The RAG Generation Engine -->
+      <section>
+        <h2>Feature 5: RAG Chat Generation</h2>
+        <div class="slide-body">
+          <p><strong>Purpose:</strong> To synthesize a conversational, plain-English answer based <em>only</em> on the retrieved document chunks, preventing AI hallucinations.</p>
+          <div class="grid-container">
+            <div class="card">
+              <h4>Theory</h4>
+              <ul>
+                <li>Standard LLMs hallucinate facts. RAG forces the LLM to act as an "open-book test" taker.</li>
+                <li>The prompt specifically forbids the AI from using its internal training data.</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h4>Actual Working (Modules used)</h4>
+              <p>Implemented in <code>rag_qa.py</code> using the <strong>Groq API</strong>.</p>
+              <ul>
+                <li>The system wraps the retrieved chunks and the user's question into a strict prompt.</li>
+                <li>It calls the <code>llama-3.3-70b-versatile</code> model via Groq's LPU hardware for instant inference (~800 tokens/sec).</li>
+                <li>The response is streamed back to the React UI.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 7: Feature 6 - Telemetry & Analytics -->
+      <section>
+        <h2>Feature 6: Enterprise Analytics</h2>
+        <div class="slide-body">
+          <p><strong>Purpose:</strong> To provide administrators observability into system health, user behavior, and LLM performance (latency/confidence).</p>
+          <div class="grid-container">
+            <div class="card">
+              <h4>Theory</h4>
+              <ul>
+                <li>Tracking "Average Confidence" shows if the database lacks answers.</li>
+                <li>Tracking "Response Time" monitors API health.</li>
+                <li>Tracking "Top Referenced Documents" shows what knowledge is most valuable to employees.</li>
+              </ul>
+            </div>
+            <div class="card">
+              <h4>Actual Working (Modules used)</h4>
+              <p>Implemented in <code>analytics.py</code> & <code>AnalyticsPanel.jsx</code>.</p>
+              <ul>
+                <li>Every API call to <code>/ask</code> logs metadata (time taken, FAISS similarity score, target domain, chunks used) into a local SQLite database.</li>
+                <li>The React frontend fetches these aggregates and renders them using graphical chart libraries.</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Slide 8: Architecture Summary Diagram -->
+      <section>
+        <h2>System Architecture Diagram</h2>
+        <div class="mermaid-container" style="transform: scale(0.75); transform-origin: top center;">
+          <div class="mermaid">
+            graph TD
+              subgraph React Frontend UI
+                Settings[Settings Panel<br/>Sliders & Strategy]
+                Knowledge[Knowledge Panel<br/>Domains & Ingestion]
+                Analytics[Analytics Dashboard]
+                Chat[Chat Interface]
+              end
+              subgraph FastAPI Backend Modules
+                API[main.py Router]
+                Ingest[ingestion.py & chunking.py]
+                Domains[knowledge_domains.py]
+                Search[retrieval.py<br/>FAISS + BM25]
+                LLM[rag_qa.py]
+                Tele[analytics.py & cache.py]
+              end
+              subgraph External / Models
+                Embed[SentenceTransformer<br/>Local Embeddings]
+                Groq[Groq API<br/>Llama-3.3-70B]
+              end
+              
+              Settings -->|Configures| Search
+              Knowledge -->|Uploads| Ingest
+              Chat -->|Queries| API
+              API --> Domains
+              Domains --> Search
+              Search -->|Encodes| Embed
+              Search --> LLM
+              LLM --> Groq
+              Groq --> LLM
+              LLM --> Tele
+              Tele --> Analytics
+              LLM --> API
+              API --> Chat
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+  
+  <script>
+    mermaid.initialize({ startOnLoad: true, theme: 'default' });
+    Reveal.initialize({
+      hash: true,
+      slideNumber: true,
+      transition: 'slide',
+      center: false,
+      margin: 0.05,
+      disableLayout: false
+    });
+  </script>
+</body>
+</html>

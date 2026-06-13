@@ -1,34 +1,12 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
-
-DB_PATH = Path("data/analytics.db")
-
+from supabase_client import supabase
 
 def init_analytics_db() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS query_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                query TEXT NOT NULL,
-                answer TEXT,
-                confidence REAL,
-                response_time_ms REAL,
-                sources TEXT,
-                domain TEXT,
-                intent TEXT,
-                cached INTEGER DEFAULT 0,
-                session_id TEXT,
-                created_at TEXT NOT NULL
-            )
-        """)
-        conn.commit()
-
+    pass
 
 def log_query(
     query: str,
@@ -40,104 +18,111 @@ def log_query(
     intent: str = "",
     cached: bool = False,
     session_id: str = "",
+    user_id: str | None = None,
 ) -> None:
-    init_analytics_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.execute(
-            """INSERT INTO query_log
-               (query, answer, confidence, response_time_ms, sources, domain, intent, cached, session_id, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                query,
-                answer,
-                confidence,
-                response_time_ms,
-                json.dumps(sources or []),
-                domain or "",
-                intent,
-                int(cached),
-                session_id,
-                datetime.now(timezone.utc).isoformat(),
-            ),
-        )
-        conn.commit()
-
+    if not supabase: return
+    try:
+        supabase.table("query_log").insert({
+            "user_id": user_id,
+            "query": query,
+            "answer": answer,
+            "confidence": confidence,
+            "response_time_ms": response_time_ms,
+            "sources": sources or [],
+            "domain": domain or "",
+            "intent": intent,
+            "cached": cached,
+            "session_id": session_id,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }).execute()
+    except Exception as e:
+        print(f"Error logging query: {e}")
 
 def get_dashboard_data() -> dict[str, Any]:
-    init_analytics_db()
-    with sqlite3.connect(DB_PATH) as conn:
-        conn.row_factory = sqlite3.Row
+    if not supabase:
+        return {
+            "total_queries": 0, "avg_confidence": 0.0, "avg_response_time_ms": 0.0,
+            "cache_hit_rate": 0.0, "confidence_distribution": [], "query_volume": [],
+            "top_documents": [], "knowledge_gaps": [], "domain_distribution": [],
+            "feedback": {"helpful": 0, "not_helpful": 0}, "response_times": []
+        }
 
-        total = conn.execute("SELECT COUNT(*) as c FROM query_log").fetchone()["c"]
-        avg_conf = conn.execute("SELECT AVG(confidence) as a FROM query_log").fetchone()["a"] or 0
-        avg_time = conn.execute("SELECT AVG(response_time_ms) as a FROM query_log").fetchone()["a"] or 0
-        cache_hits = conn.execute("SELECT COUNT(*) as c FROM query_log WHERE cached = 1").fetchone()["c"]
+    # Fetch last 1000 queries for dashboard to compute stats in Python
+    resp = supabase.table("query_log").select("*").order("created_at", desc=True).limit(1000).execute()
+    logs = resp.data
+    
+    total_fetched = len(logs)
+    if total_fetched == 0:
+        return {
+            "total_queries": 0, "avg_confidence": 0.0, "avg_response_time_ms": 0.0,
+            "cache_hit_rate": 0.0, "confidence_distribution": [], "query_volume": [],
+            "top_documents": [], "knowledge_gaps": [], "domain_distribution": [],
+            "feedback": {"helpful": 0, "not_helpful": 0}, "response_times": []
+        }
 
-        # Confidence distribution
-        conf_buckets = []
-        for lo, hi, label in [(0, 0.25, "0-25%"), (0.25, 0.5, "25-50%"), (0.5, 0.75, "50-75%"), (0.75, 1.01, "75-100%")]:
-            count = conn.execute(
-                "SELECT COUNT(*) as c FROM query_log WHERE confidence >= ? AND confidence < ?", (lo, hi)
-            ).fetchone()["c"]
-            conf_buckets.append({"label": label, "count": count})
+    avg_conf = sum(l.get("confidence", 0) for l in logs) / total_fetched
+    avg_time = sum(l.get("response_time_ms", 0) for l in logs) / total_fetched
+    cache_hits = sum(1 for l in logs if l.get("cached"))
 
-        # Query volume by hour (last 24h)
-        now = datetime.now(timezone.utc)
-        volume = []
-        for i in range(24):
-            hour_start = (now - timedelta(hours=23 - i)).replace(minute=0, second=0, microsecond=0)
-            hour_end = hour_start + timedelta(hours=1)
-            count = conn.execute(
-                "SELECT COUNT(*) as c FROM query_log WHERE created_at >= ? AND created_at < ?",
-                (hour_start.isoformat(), hour_end.isoformat()),
-            ).fetchone()["c"]
-            volume.append({"hour": hour_start.strftime("%H:%M"), "count": count})
+    conf_buckets = [{"label": "0-25%", "count": 0}, {"label": "25-50%", "count": 0}, 
+                    {"label": "50-75%", "count": 0}, {"label": "75-100%", "count": 0}]
+    for l in logs:
+        c = l.get("confidence", 0)
+        if c < 0.25: conf_buckets[0]["count"] += 1
+        elif c < 0.5: conf_buckets[1]["count"] += 1
+        elif c < 0.75: conf_buckets[2]["count"] += 1
+        else: conf_buckets[3]["count"] += 1
 
-        # Top documents
-        rows = conn.execute("SELECT sources FROM query_log WHERE sources != '[]'").fetchall()
-        doc_counts: dict[str, int] = {}
-        for row in rows:
-            try:
-                for doc in json.loads(row["sources"]):
-                    doc_counts[doc] = doc_counts.get(doc, 0) + 1
-            except (json.JSONDecodeError, TypeError):
-                pass
-        top_docs = sorted(doc_counts.items(), key=lambda x: -x[1])[:10]
-        top_docs_list = [{"document": d, "count": c} for d, c in top_docs]
+    now = datetime.now(timezone.utc)
+    volume_map = {}
+    for i in range(24):
+        hour_start = (now - timedelta(hours=23 - i)).replace(minute=0, second=0, microsecond=0)
+        volume_map[hour_start.strftime("%H:%M")] = 0
+    
+    for l in logs:
+        try:
+            dt = datetime.fromisoformat(l.get("created_at").replace('Z', '+00:00'))
+            hour_str = dt.replace(minute=0, second=0, microsecond=0).strftime("%H:%M")
+            if hour_str in volume_map:
+                volume_map[hour_str] += 1
+        except Exception:
+            pass
+    volume = [{"hour": k, "count": v} for k, v in volume_map.items()]
 
-        # Knowledge gaps (low-confidence queries)
-        gaps = conn.execute(
-            "SELECT query, confidence, created_at FROM query_log WHERE confidence < 0.5 ORDER BY created_at DESC LIMIT 10"
-        ).fetchall()
-        knowledge_gaps = [dict(g) for g in gaps]
+    doc_counts: dict[str, int] = {}
+    for l in logs:
+        srcs = l.get("sources", [])
+        if isinstance(srcs, str):
+            try: srcs = json.loads(srcs)
+            except: srcs = []
+        for doc in srcs:
+            doc_counts[doc] = doc_counts.get(doc, 0) + 1
+    top_docs = sorted(doc_counts.items(), key=lambda x: -x[1])[:10]
+    top_docs_list = [{"document": d, "count": c} for d, c in top_docs]
 
-        # Domain distribution
-        domain_rows = conn.execute(
-            "SELECT domain, COUNT(*) as c FROM query_log WHERE domain IS NOT NULL AND domain != '' GROUP BY domain ORDER BY c DESC"
-        ).fetchall()
-        domain_dist = [{"domain": r["domain"], "count": r["c"]} for r in domain_rows]
+    gaps = [l for l in logs if l.get("confidence", 0) < 0.5][:10]
+    knowledge_gaps = [{"query": g["query"], "confidence": g["confidence"], "created_at": g["created_at"]} for g in gaps]
 
-        # Feedback stats
-        from pathlib import Path as _P
-        fb_path = _P("data/feedback.db")
-        helpful = 0
-        not_helpful = 0
-        if fb_path.exists():
-            with sqlite3.connect(fb_path) as fb_conn:
-                helpful = fb_conn.execute("SELECT COUNT(*) FROM feedback WHERE helpful = 1").fetchone()[0]
-                not_helpful = fb_conn.execute("SELECT COUNT(*) FROM feedback WHERE helpful = 0").fetchone()[0]
+    domain_counts = {}
+    for l in logs:
+        d = l.get("domain")
+        if d: domain_counts[d] = domain_counts.get(d, 0) + 1
+    domain_dist = [{"domain": k, "count": v} for k, v in sorted(domain_counts.items(), key=lambda x: -x[1])]
 
-        # Response time trend
-        time_rows = conn.execute(
-            "SELECT response_time_ms, created_at FROM query_log ORDER BY id DESC LIMIT 20"
-        ).fetchall()
-        response_times = [{"time_ms": r["response_time_ms"], "at": r["created_at"]} for r in reversed(list(time_rows))]
+    fb_resp = supabase.table("feedback").select("helpful").execute()
+    helpful = sum(1 for f in fb_resp.data if f.get("helpful"))
+    not_helpful = sum(1 for f in fb_resp.data if not f.get("helpful"))
+
+    response_times = [{"time_ms": l["response_time_ms"], "at": l["created_at"]} for l in reversed(logs[:20])]
+
+    count_resp = supabase.table("query_log").select("*", count="exact").limit(1).execute()
+    real_total = count_resp.count if count_resp.count is not None else total_fetched
 
     return {
-        "total_queries": total,
+        "total_queries": real_total,
         "avg_confidence": round(avg_conf, 3),
         "avg_response_time_ms": round(avg_time, 1),
-        "cache_hit_rate": round(cache_hits / total, 3) if total > 0 else 0,
+        "cache_hit_rate": round(cache_hits / real_total, 3) if real_total > 0 else 0,
         "confidence_distribution": conf_buckets,
         "query_volume": volume,
         "top_documents": top_docs_list,
@@ -146,3 +131,19 @@ def get_dashboard_data() -> dict[str, Any]:
         "feedback": {"helpful": helpful, "not_helpful": not_helpful},
         "response_times": response_times,
     }
+
+def get_document_access_counts() -> dict[str, int]:
+    if not supabase: return {}
+    try:
+        resp = supabase.table("query_log").select("sources").execute()
+        doc_counts = {}
+        for l in resp.data:
+            srcs = l.get("sources", [])
+            if isinstance(srcs, str):
+                try: srcs = json.loads(srcs)
+                except: srcs = []
+            for doc in srcs:
+                doc_counts[doc] = doc_counts.get(doc, 0) + 1
+        return doc_counts
+    except Exception:
+        return {}

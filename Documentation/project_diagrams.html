@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FastAPI Knowledge Assistant — Project Diagrams</title>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', 'Arial', sans-serif;
+      background: #fff;
+      color: #1a1a1a;
+      padding: 48px 40px 60px;
+      max-width: 1100px;
+      margin: 0 auto;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    /* ── Section Headings ── */
+    .section-heading {
+      font-size: 17px;
+      font-weight: 700;
+      margin: 48px 0 28px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .section-heading span { font-weight: 400; margin-right: 12px; }
+
+    .figure-caption {
+      text-align: center;
+      font-size: 14px;
+      font-weight: 700;
+      margin: 22px 0 0;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    /* ── Diagram Container ── */
+    .diagram {
+      border: 2px solid #1a1a1a;
+      padding: 0;
+      background: #fff;
+    }
+
+    /* ═══════════════════════════════════════
+       SYSTEM ARCHITECTURE
+       ═══════════════════════════════════════ */
+
+    .arch-layer {
+      display: flex;
+      align-items: stretch;
+      border-bottom: 2px solid #1a1a1a;
+    }
+    .arch-layer:last-child { border-bottom: none; }
+
+    .layer-label {
+      width: 148px;
+      min-width: 148px;
+      background: #f5f5f5;
+      border-right: 2px solid #1a1a1a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 14px 10px;
+      font-weight: 700;
+      font-size: 12.5px;
+      line-height: 1.35;
+    }
+
+    .layer-content {
+      flex: 1;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Component boxes inside layers */
+    .component-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .component-box {
+      border: 1.5px solid #1a1a1a;
+      border-radius: 3px;
+      padding: 9px 13px;
+      font-size: 11.5px;
+      font-weight: 600;
+      text-align: center;
+      background: #fff;
+      line-height: 1.3;
+      min-width: 120px;
+    }
+
+    .component-box.wide {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .api-detail-box {
+      border: 1.5px solid #1a1a1a;
+      border-radius: 3px;
+      display: flex;
+      align-items: stretch;
+      background: #fff;
+    }
+    .api-detail-box .api-name {
+      background: #f5f5f5;
+      border-right: 1.5px solid #1a1a1a;
+      padding: 12px 16px;
+      font-weight: 700;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      min-width: 155px;
+    }
+    .api-detail-box .api-bullets {
+      padding: 10px 18px;
+      font-size: 11.5px;
+      line-height: 1.7;
+    }
+
+    .bar-box {
+      border: 1.5px solid #1a1a1a;
+      border-radius: 3px;
+      padding: 7px 16px;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      background: #f5f5f5;
+    }
+
+    /* Database cylinders */
+    .db-row {
+      display: flex;
+      gap: 28px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .db-item {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .db-cylinder {
+      width: 110px;
+      height: 52px;
+      position: relative;
+    }
+    .db-cylinder .body {
+      width: 100%;
+      height: 36px;
+      border: 1.5px solid #1a1a1a;
+      border-top: none;
+      border-radius: 0 0 8px 8px;
+      position: absolute;
+      bottom: 0;
+      background: #f9f9f9;
+    }
+    .db-cylinder .top-ellipse {
+      width: 100%;
+      height: 20px;
+      border: 1.5px solid #1a1a1a;
+      border-radius: 50%;
+      position: absolute;
+      top: 0;
+      background: #f0f0f0;
+      z-index: 1;
+    }
+    .db-cylinder .bottom-ellipse {
+      width: 100%;
+      height: 20px;
+      border: 1.5px solid #1a1a1a;
+      border-top: none;
+      border-radius: 0 0 50% 50% / 0 0 100% 100%;
+      position: absolute;
+      bottom: 0;
+    }
+    .db-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      line-height: 1.3;
+      max-width: 120px;
+    }
+
+    /* Connection arrows between layers */
+    .conn-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 0;
+      border-bottom: 2px solid #1a1a1a;
+      background: #fafafa;
+    }
+    .conn-arrow .arrow-body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+    .conn-arrow .arrow-label {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+    }
+    .conn-arrow .arrow-line {
+      width: 2px;
+      height: 10px;
+      background: #1a1a1a;
+      position: relative;
+    }
+    .conn-arrow .arrow-line::after {
+      content: '';
+      position: absolute;
+      bottom: -5px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid #1a1a1a;
+    }
+    .conn-arrow .arrow-line.up::after {
+      bottom: auto;
+      top: -5px;
+      border-top: none;
+      border-bottom: 6px solid #1a1a1a;
+    }
+    .conn-arrow .arrow-dual {
+      display: flex;
+      gap: 6px;
+    }
+
+
+    /* ═══════════════════════════════════════
+       DATA FLOW DIAGRAM
+       ═══════════════════════════════════════ */
+
+    .dfd-container {
+      padding: 28px 20px 24px;
+    }
+
+    .pipeline-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #555;
+      margin-bottom: 18px;
+      padding-left: 2px;
+    }
+
+    .pipeline-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0;
+      justify-content: center;
+      flex-wrap: nowrap;
+    }
+
+    .dfd-stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      flex: 1;
+    }
+    .dfd-header {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      text-align: center;
+      color: #333;
+      white-space: nowrap;
+    }
+    .dfd-box {
+      border: 1.5px solid #1a1a1a;
+      border-radius: 3px;
+      padding: 10px 10px;
+      font-size: 10.5px;
+      font-weight: 500;
+      text-align: center;
+      background: #fff;
+      line-height: 1.4;
+      width: 100%;
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dfd-arrow {
+      display: flex;
+      align-items: center;
+      padding: 24px 0 0;
+      min-width: 28px;
+      justify-content: center;
+    }
+    .dfd-arrow-h {
+      width: 22px;
+      height: 2px;
+      background: #1a1a1a;
+      position: relative;
+    }
+    .dfd-arrow-h::after {
+      content: '';
+      position: absolute;
+      right: -5px;
+      top: 50%;
+      transform: translateY(-50%);
+      border-top: 5px solid transparent;
+      border-bottom: 5px solid transparent;
+      border-left: 7px solid #1a1a1a;
+    }
+
+    .pipeline-separator {
+      border: none;
+      border-top: 1px dashed #bbb;
+      margin: 30px 0;
+    }
+
+    /* Vertical arrow for output */
+    .dfd-vertical-link {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 14px 0 4px;
+    }
+    .dfd-arrow-v {
+      width: 2px;
+      height: 22px;
+      background: #1a1a1a;
+      position: relative;
+    }
+    .dfd-arrow-v::after {
+      content: '';
+      position: absolute;
+      bottom: -5px;
+      left: 50%;
+      transform: translateX(-50%);
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 7px solid #1a1a1a;
+    }
+
+    .dfd-output-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+    .dfd-output-box {
+      border: 1.5px solid #1a1a1a;
+      border-radius: 3px;
+      padding: 10px 24px;
+      font-size: 10.5px;
+      font-weight: 500;
+      text-align: center;
+      background: #fff;
+      line-height: 1.4;
+    }
+
+    /* ── Page break for printing ── */
+    .page-break {
+      page-break-before: always;
+      margin-top: 12px;
+    }
+
+    @media print {
+      body { padding: 24px; }
+      .page-break { page-break-before: always; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ════════════════════════════════════════════
+       6.1  SYSTEM ARCHITECTURE
+       ════════════════════════════════════════════ -->
+
+  <h2 class="section-heading"><span>6.1 –</span> SYSTEM ARCHITECTURE</h2>
+
+  <div class="diagram">
+
+    <!-- Layer 1: Frontend -->
+    <div class="arch-layer">
+      <div class="layer-label">Frontend<br />(React + Vite)</div>
+      <div class="layer-content">
+        <div class="component-row">
+          <div class="component-box">Chat<br/>Interface</div>
+          <div class="component-box">RAG Settings<br/>Panel</div>
+          <div class="component-box">Knowledge Base<br/>Manager</div>
+          <div class="component-box">Document Upload<br/>(Drag &amp; Drop)</div>
+          <div class="component-box">Feedback<br/>System</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow: HTTP -->
+    <div class="conn-arrow">
+      <div class="arrow-body">
+        <div class="arrow-dual">
+          <div class="arrow-line up"></div>
+          <div class="arrow-line"></div>
+        </div>
+        <div class="arrow-label">HTTP / REST API (JSON)</div>
+        <div class="arrow-dual">
+          <div class="arrow-line up"></div>
+          <div class="arrow-line"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Layer 2: API -->
+    <div class="arch-layer">
+      <div class="layer-label">API Layer<br />(FastAPI)</div>
+      <div class="layer-content">
+        <div class="api-detail-box">
+          <div class="api-name">API Server<br/>(FastAPI + Uvicorn)</div>
+          <div class="api-bullets">
+            • Request Handling &amp; Routing<br/>
+            • CORS Middleware<br/>
+            • Session Management<br/>
+            • Admin Authentication<br/>
+            • Response Formatting
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Arrow: Internal Communication -->
+    <div class="conn-arrow">
+      <div class="arrow-body">
+        <div class="arrow-line"></div>
+        <div class="arrow-label">Internal Communication</div>
+        <div class="arrow-line"></div>
+      </div>
+    </div>
+
+    <!-- Layer 3: Backend Services -->
+    <div class="arch-layer">
+      <div class="layer-label">Backend<br/>Services<br/>(Python)</div>
+      <div class="layer-content">
+        <div class="component-row">
+          <div class="component-box">Document<br/>Ingestion<br/><span style="font-weight:400;font-size:10px">(Web Scraping)</span></div>
+          <div class="component-box">Text Chunking<br/><span style="font-weight:400;font-size:10px">(Sliding Window)</span></div>
+          <div class="component-box">Embedding<br/>Generation<br/><span style="font-weight:400;font-size:10px">(Sentence Transformers)</span></div>
+          <div class="component-box">Vector<br/>Retrieval<br/><span style="font-weight:400;font-size:10px">(FAISS)</span></div>
+          <div class="component-box">RAG Q&amp;A<br/><span style="font-weight:400;font-size:10px">(Groq LLM)</span></div>
+        </div>
+        <div class="bar-box">Query Rewriting &amp; Intent Detection</div>
+      </div>
+    </div>
+
+    <!-- Arrow: Data Access -->
+    <div class="conn-arrow">
+      <div class="arrow-body">
+        <div class="arrow-dual">
+          <div class="arrow-line up"></div>
+          <div class="arrow-line"></div>
+        </div>
+        <div class="arrow-label">Data Access</div>
+        <div class="arrow-dual">
+          <div class="arrow-line up"></div>
+          <div class="arrow-line"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Layer 4: Data Layer -->
+    <div class="arch-layer">
+      <div class="layer-label">Data Layer</div>
+      <div class="layer-content">
+        <div class="db-row">
+          <div class="db-item">
+            <div class="db-cylinder">
+              <div class="top-ellipse"></div>
+              <div class="body"></div>
+            </div>
+            <div class="db-label">FAISS<br/>Vector Index</div>
+          </div>
+          <div class="db-item">
+            <div class="db-cylinder">
+              <div class="top-ellipse"></div>
+              <div class="body"></div>
+            </div>
+            <div class="db-label">Document Store<br/>(TXT / MD / PDF)</div>
+          </div>
+          <div class="db-item">
+            <div class="db-cylinder">
+              <div class="top-ellipse"></div>
+              <div class="body"></div>
+            </div>
+            <div class="db-label">Feedback DB<br/>(SQLite)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="figure-caption">Figure 6.1 SYSTEM ARCHITECTURE</p>
+
+
+
+  <!-- ════════════════════════════════════════════
+       6.2  DATA FLOW DIAGRAM
+       ════════════════════════════════════════════ -->
+
+  <div class="page-break"></div>
+
+  <h2 class="section-heading"><span>6.2 –</span> DATA FLOW DIAGRAM</h2>
+
+  <div class="diagram">
+    <div class="dfd-container">
+
+      <!-- ── Top Pipeline: Document Ingestion ── -->
+      <div class="pipeline-label">Document Ingestion Pipeline</div>
+
+      <div class="pipeline-row">
+        <!-- Stage 1 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Data Collection</div>
+          <div class="dfd-box">Technical<br/>Documentation<br/>(PDF / Docs / Texts)</div>
+        </div>
+        <div class="dfd-arrow"><div class="dfd-arrow-h"></div></div>
+
+        <!-- Stage 2 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Data Preprocessing</div>
+          <div class="dfd-box">Text Extraction<br/>&amp; Whitespace<br/>Normalization</div>
+        </div>
+        <div class="dfd-arrow"><div class="dfd-arrow-h"></div></div>
+
+        <!-- Stage 3 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Text Chunking</div>
+          <div class="dfd-box">Split into<br/>Overlapping Chunks<br/>(Sliding Window)</div>
+        </div>
+        <div class="dfd-arrow"><div class="dfd-arrow-h"></div></div>
+
+        <!-- Stage 4 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Embedding Generation</div>
+          <div class="dfd-box">Generate Embeddings<br/>(Sentence<br/>Transformer)</div>
+        </div>
+        <div class="dfd-arrow"><div class="dfd-arrow-h"></div></div>
+
+        <!-- Stage 5 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Vector Storage</div>
+          <div class="dfd-box">Store Embeddings<br/>(FAISS<br/>Vector Index)</div>
+        </div>
+      </div>
+
+      <hr class="pipeline-separator" />
+
+      <!-- ── Bottom Pipeline: Query Processing ── -->
+      <div class="pipeline-label">Query Processing Pipeline</div>
+
+      <div class="pipeline-row">
+        <!-- Stage 1 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">User Query</div>
+          <div class="dfd-box">User<br/>Query</div>
+        </div>
+        <div class="dfd-arrow"><div class="dfd-arrow-h"></div></div>
+
+        <!-- Stage 2 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Query Processing</div>
+          <div class="dfd-box">Preprocess Query<br/>&amp; Detect Intent</div>
+        </div>
+        <div class="dfd-arrow"><div class="dfd-arrow-h"></div></div>
+
+        <!-- Stage 3 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Query Embedding</div>
+          <div class="dfd-box">Generate Query<br/>Embedding<br/>(Sentence Transformer)</div>
+        </div>
+        <div class="dfd-arrow"><div class="dfd-arrow-h"></div></div>
+
+        <!-- Stage 4 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Retrieval</div>
+          <div class="dfd-box">Similarity Search<br/>(FAISS Inner<br/>Product)</div>
+        </div>
+        <div class="dfd-arrow"><div class="dfd-arrow-h"></div></div>
+
+        <!-- Stage 5 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Top Relevant Chunks</div>
+          <div class="dfd-box">Retrieve Top-K<br/>Relevant<br/>Chunks</div>
+        </div>
+        <div class="dfd-arrow"><div class="dfd-arrow-h"></div></div>
+
+        <!-- Stage 6 -->
+        <div class="dfd-stage">
+          <div class="dfd-header">Response Generation</div>
+          <div class="dfd-box">Generate Response<br/>(Groq LLaMA<br/>3.3 70B)</div>
+        </div>
+      </div>
+
+      <!-- Vertical arrow to Output -->
+      <div class="dfd-vertical-link" style="margin-left:auto;margin-right:0;width:calc(100% / 11);">
+        <div class="dfd-arrow-v"></div>
+      </div>
+
+      <div class="dfd-output-section" style="margin-left:auto;margin-right:0;width:calc(100% / 6.5);">
+        <div class="dfd-header">Output</div>
+        <div class="dfd-output-box">Display Answer<br/>with Citations &amp;<br/>Confidence to User</div>
+      </div>
+
+    </div>
+  </div>
+
+  <p class="figure-caption">Figure 6.2 DATA FLOW DIAGRAM</p>
+
+
+  <!-- ════════════════════════════════════════════
+       5.  HARDWARE & SOFTWARE REQUIREMENTS
+       ════════════════════════════════════════════ -->
+
+  <div class="page-break"></div>
+
+  <h2 class="section-heading"><span>5 –</span> HARDWARE AND SOFTWARE REQUIREMENTS</h2>
+
+  <style>
+    /* ── Requirements Table ── */
+    .req-table {
+      width: 100%;
+      border-collapse: collapse;
+      border: 2px solid #1a1a1a;
+      font-size: 13.5px;
+      line-height: 1.65;
+    }
+    .req-table td {
+      border: 1.5px solid #1a1a1a;
+      padding: 14px 20px;
+      vertical-align: top;
+    }
+    .req-table .row-label {
+      width: 230px;
+      min-width: 200px;
+      background: #f5f5f5;
+      font-weight: 700;
+      font-size: 13px;
+      vertical-align: middle;
+    }
+    .req-table .row-content {
+      font-size: 13px;
+    }
+    .req-table .row-content .req-category {
+      font-weight: 700;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #333;
+      margin: 0 0 6px;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #ddd;
+    }
+    .req-table .row-content .req-category:not(:first-child) {
+      margin-top: 16px;
+    }
+    .req-table .row-content ul {
+      margin: 0;
+      padding-left: 22px;
+      list-style: disc;
+    }
+    .req-table .row-content ul li {
+      margin-bottom: 3px;
+    }
+    .req-table .row-content ul li strong {
+      font-weight: 600;
+    }
+
+    .table-caption {
+      text-align: center;
+      font-size: 14px;
+      font-weight: 700;
+      margin: 22px 0 0;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+  </style>
+
+  <table class="req-table">
+
+    <!-- Row 1: Laboratory Details -->
+    <tr>
+      <td class="row-label">
+        Laboratory details where the<br/>project is carried out
+      </td>
+      <td class="row-content" style="vertical-align:middle;">
+        Project Lab, CSE / IT Department
+      </td>
+    </tr>
+
+    <!-- Row 2: Software / Hardware Details -->
+    <tr>
+      <td class="row-label">
+        Software / Hardware<br/>details
+      </td>
+      <td class="row-content">
+
+        <p class="req-category">Software Requirements</p>
+        <ul>
+          <li><strong>Operating System:</strong> Windows 10/11, Linux, or macOS</li>
+          <li><strong>Programming Language:</strong> Python 3.10+, JavaScript (ES6+)</li>
+          <li><strong>Backend Framework:</strong> FastAPI, Uvicorn</li>
+          <li><strong>Frontend Framework:</strong> React 19, Vite 7</li>
+          <li><strong>AI / ML Libraries:</strong> Sentence Transformers (all-MiniLM-L6-v2), FAISS, NumPy, Scikit-learn</li>
+          <li><strong>LLM Provider:</strong> Groq API (LLaMA 3.3 70B Versatile)</li>
+          <li><strong>NLP / Data Processing:</strong> BeautifulSoup4, PyPDF</li>
+          <li><strong>Database:</strong> SQLite 3 (Feedback Storage)</li>
+          <li><strong>Package Managers:</strong> pip, npm</li>
+          <li><strong>IDE / Editor:</strong> Visual Studio Code</li>
+          <li><strong>Browser:</strong> Google Chrome / Microsoft Edge (Modern)</li>
+          <li><strong>Version Control:</strong> Git</li>
+        </ul>
+
+        <p class="req-category">Hardware Requirements</p>
+        <ul>
+          <li><strong>Processor:</strong> Intel Core i5 (8th Gen) or above / AMD Ryzen 5 or above</li>
+          <li><strong>RAM:</strong> Minimum 8 GB (16 GB recommended for embedding generation)</li>
+          <li><strong>Storage:</strong> Minimum 5 GB free disk space</li>
+          <li><strong>GPU:</strong> Not required (CPU-based inference supported)</li>
+          <li><strong>Network:</strong> Active Internet Connection (for Groq API calls &amp; document ingestion)</li>
+          <li><strong>Display:</strong> Minimum 1366 × 768 resolution</li>
+          <li><strong>Device:</strong> Laptop or Desktop Computer</li>
+        </ul>
+
+      </td>
+    </tr>
+
+  </table>
+
+  <p class="table-caption">Table 5.1 HARDWARE AND SOFTWARE REQUIREMENTS</p>
+
+
+  <!-- ════════════════════════════════════════════
+       7.2  MODULE DESCRIPTION
+       ════════════════════════════════════════════ -->
+
+  <div class="page-break"></div>
+
+  <h2 class="section-heading"><span>7.2 –</span> MODULE DESCRIPTION</h2>
+
+  <style>
+    /* ── Module Styles ── */
+    .module-block {
+      margin-bottom: 28px;
+    }
+    .module-title {
+      font-size: 14.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      margin-bottom: 10px;
+      color: #1a1a1a;
+    }
+    .module-title span {
+      font-weight: 400;
+      margin-right: 8px;
+    }
+    .module-desc {
+      font-size: 13.5px;
+      line-height: 1.75;
+      text-align: justify;
+      color: #1a1a1a;
+      margin-left: 24px;
+    }
+    .module-separator {
+      border: none;
+      margin: 0;
+    }
+  </style>
+
+
+  <!-- Module 1 -->
+  <div class="module-block">
+    <h3 class="module-title"><span>7.2.1</span> DOCUMENT INGESTION MODULE</h3>
+    <p class="module-desc">
+      The document ingestion module is responsible for collecting and importing knowledge documents into the system. It supports two ingestion methods: automated web scraping of online documentation pages using BeautifulSoup4 with HTTP requests, and manual file upload through the API supporting PDF, TXT, and Markdown file formats. For PDF files, the module uses PyPDF to extract text content from each page. The ingested content is cleaned, normalized, and stored as plain text files in the knowledge base directory. This module forms the entry point of the entire RAG pipeline, ensuring that raw documentation is converted into a consistent format suitable for downstream processing and indexing.
+    </p>
+  </div>
+
+  <!-- Module 2 -->
+  <div class="module-block">
+    <h3 class="module-title"><span>7.2.2</span> TEXT PREPROCESSING &amp; CHUNKING MODULE</h3>
+    <p class="module-desc">
+      The text preprocessing and chunking module transforms raw document text into structured, manageable segments for embedding generation. It first normalizes whitespace by stripping leading and trailing spaces from each line and removing empty lines. The cleaned text is then split into overlapping chunks using a sliding window approach with a configurable chunk size of 220 words and an overlap of 40 words. The overlap ensures that contextual information at chunk boundaries is preserved, preventing loss of meaning when sentences span across chunk edges. Each chunk is indexed with its source document name and sequence number, enabling accurate source attribution during retrieval and citation.
+    </p>
+  </div>
+
+  <!-- Module 3 -->
+  <div class="module-block">
+    <h3 class="module-title"><span>7.2.3</span> EMBEDDING GENERATION MODULE</h3>
+    <p class="module-desc">
+      The embedding generation module converts text chunks and user queries into dense numerical vector representations using the all-MiniLM-L6-v2 sentence transformer model. This pre-trained model captures semantic meaning, context, intent, and relationships between words, producing 384-dimensional embedding vectors for each input. The embeddings are L2-normalized to enable cosine similarity comparisons via inner product operations. This module is critical to the system's ability to perform semantic search — it allows the retrieval engine to match user queries against document chunks based on meaning rather than exact keyword matching, significantly improving the quality and relevance of search results.
+    </p>
+  </div>
+
+  <!-- Module 4 -->
+  <div class="module-block">
+    <h3 class="module-title"><span>7.2.4</span> VECTOR STORAGE &amp; RETRIEVAL MODULE</h3>
+    <p class="module-desc">
+      The vector storage and retrieval module manages the FAISS (Facebook AI Similarity Search) vector index, which stores all document chunk embeddings for high-performance similarity search. During indexing, normalized embeddings are added to a FAISS IndexFlatIP (Inner Product) index, and the index along with document metadata is persisted to disk using pickle serialization. During query time, the module encodes the user's query into an embedding, performs an approximate nearest neighbor search against the index, and returns the top-K most similar chunks that exceed a configurable similarity threshold. The module also provides document inventory management, listing all indexed files with their sizes and indexing status.
+    </p>
+  </div>
+
+  <div class="page-break"></div>
+
+  <!-- Module 5 -->
+  <div class="module-block">
+    <h3 class="module-title"><span>7.2.5</span> RAG QUESTION-ANSWERING MODULE</h3>
+    <p class="module-desc">
+      The RAG (Retrieval-Augmented Generation) question-answering module is the core intelligence engine of the system. It orchestrates the complete pipeline from query understanding to grounded answer generation. The module performs intent detection to classify queries as "explain," "compare," or "summarize" types. It implements context-aware query rewriting to resolve pronouns and references from conversation history, improving retrieval accuracy for follow-up questions. Retrieved chunks are assembled into a structured prompt with source citations, conversation history, and strict grounding instructions. The prompt is sent to the Groq API running LLaMA 3.3 70B Versatile model with low temperature (0.2) for deterministic, factual responses. The module computes a confidence score based on average similarity of retrieved chunks and returns the answer with inline citations, source references, and metadata.
+    </p>
+  </div>
+
+  <!-- Module 6 -->
+  <div class="module-block">
+    <h3 class="module-title"><span>7.2.6</span> API GATEWAY MODULE</h3>
+    <p class="module-desc">
+      The API gateway module is developed using FastAPI and served through Uvicorn, providing the RESTful interface between the frontend application and all backend services. It exposes endpoints for question answering (<code>/api/ask</code>), document upload (<code>/api/upload</code>), document management (<code>/api/documents</code>), conversation history retrieval (<code>/api/history</code>), and user feedback submission (<code>/api/feedback</code>). The module implements CORS middleware for cross-origin requests, admin password authentication for document upload and deletion operations, session-based conversation tracking, and comprehensive error handling with appropriate HTTP status codes. It initializes the FAISS index and feedback database on application startup.
+    </p>
+  </div>
+
+  <!-- Module 7 -->
+  <div class="module-block">
+    <h3 class="module-title"><span>7.2.7</span> FEEDBACK &amp; ANALYTICS MODULE</h3>
+    <p class="module-desc">
+      The feedback and analytics module enables users to rate the helpfulness of each assistant response, creating a continuous feedback loop for system evaluation. User feedback — including the session identifier, message ID, original query, generated answer, and helpfulness rating — is stored in a SQLite database with timestamps. The module provides an export endpoint that returns all collected feedback records in reverse chronological order, enabling administrators to analyze response quality, identify areas for improvement, and track user satisfaction trends over time. This data-driven approach supports iterative refinement of the knowledge base and retrieval parameters.
+    </p>
+  </div>
+
+  <!-- Module 8 -->
+  <div class="module-block">
+    <h3 class="module-title"><span>7.2.8</span> FRONTEND VISUALIZATION MODULE</h3>
+    <p class="module-desc">
+      The frontend visualization module is developed using React 19 and Vite 7 to provide a modern, responsive single-page application for interacting with the knowledge assistant. It features a real-time chat interface with message threading, typing indicators, and markdown-rendered responses. The sidebar includes configurable RAG settings with sliders for Top-K chunks and similarity threshold, suggested questions for quick exploration, and a knowledge base manager with categorized document listing. The module supports drag-and-drop document upload with admin authentication, dark and light theme switching with persistent preferences, and a per-message feedback system with thumbs up/down buttons. An insight ribbon displays live confidence scores, detected intent, and query rewrite information for each response, providing transparency into the RAG pipeline's decision-making process.
+    </p>
+  </div>
+
+
+</body>
+</html>
+

@@ -10,9 +10,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.106.1",
+    "d3-hierarchy": "^3.1.2",
+    "force-graph": "^1.51.4",
     "lucide-react": "^0.577.0",
+    "mermaid": "^10.9.6",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-force-graph-2d": "^1.29.1",
+    "recharts": "^3.8.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

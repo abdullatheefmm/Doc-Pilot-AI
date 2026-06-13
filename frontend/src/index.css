@@ -81,3 +81,28 @@ body {
   background: var(--accent-color);
   color: white;
 }
+
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.spinning { animation: spin 1s linear infinite; }
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  font-family: inherit;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.tab-btn:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.action-icon { background: transparent; border: none; cursor: pointer; color: var(--muted-text); padding: 4px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.action-icon:hover { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
