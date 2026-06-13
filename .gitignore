@@ -32,3 +32,5 @@ npm-debug.log*
 *.ps1
 restore.py
 
+# Local Documentation
+Documentation/
