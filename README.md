@@ -1,134 +1,114 @@
 <div align="center">
-  <h1>🚀 Doc-Pilot-AI</h1>
-  <p><strong>An Enterprise-Grade Retrieval-Augmented Generation (RAG) Knowledge Assistant</strong></p>
+  <img src="https://raw.githubusercontent.com/tandpfun/skill-icons/main/icons/React-Dark.svg" width="40" height="40" alt="React" />
+  <img src="https://raw.githubusercontent.com/tandpfun/skill-icons/main/icons/FastAPI.svg" width="40" height="40" alt="FastAPI" />
+  <img src="https://raw.githubusercontent.com/tandpfun/skill-icons/main/icons/Python-Dark.svg" width="40" height="40" alt="Python" />
+  <img src="https://raw.githubusercontent.com/tandpfun/skill-icons/main/icons/Supabase-Dark.svg" width="40" height="40" alt="Supabase" />
+  
+  <br/><br/>
+
+  <h1 align="center">Doc-Pilot AI</h1>
+  <p align="center">
+    <strong>An Enterprise-Grade, Agentic RAG Platform for Deep Document Intelligence</strong>
+  </p>
+
+  <p align="center">
+    <a href="#overview">Overview</a> •
+    <a href="#capabilities">Capabilities</a> •
+    <a href="#getting-started">Getting Started</a> •
+    <a href="#security--privacy">Security</a>
+  </p>
 </div>
 
----
+<br/>
 
-## 🌟 Overview
+## 🎯 Overview
 
-**Doc-Pilot-AI** is a full-stack, AI-powered Enterprise Knowledge Assistant designed to ingest, process, and query internal company documents with extreme accuracy. Moving far beyond a simple wrapper, Doc-Pilot-AI implements an advanced **Agentic RAG Pipeline** featuring hybrid search, semantic reranking, real-time knowledge graph extraction, and strict data loss prevention (DLP) protocols.
+**Doc-Pilot AI** is a state-of-the-art enterprise knowledge retrieval system. Designed for environments that demand both extreme precision and robust data security, it transforms static document repositories into interactive, secure, and highly intelligent knowledge bases.
 
-Whether you're uploading technical PDFs, querying code documentation, or exploring entity relationships via the interactive visualizer, Doc-Pilot-AI ensures responses are fully grounded, highly secure, and blazingly fast.
+By combining hybrid semantic search architectures with multi-agent orchestration, Doc-Pilot AI ensures that your internal data remains confidential while delivering hyper-accurate, hallucination-free insights.
 
----
+<br/>
 
-## 🏗️ System Architecture
+## 🚀 Core Capabilities
 
-The architecture is divided into a robust **FastAPI backend** and a highly interactive **React + Vite frontend**.
+<table width="100%">
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🔍 Precision Retrieval Engine</h3>
+      Leverages a sophisticated <strong>Hybrid RAG</strong> architecture, fusing dense semantic vectors with sparse lexical ranking. Combined with cross-encoder reranking, the platform guarantees that only the most contextually relevant data is processed.
+    </td>
+    <td width="50%" valign="top">
+      <h3>🛡️ Enterprise-Grade Security</h3>
+      Built-in <strong>Data Loss Prevention (DLP)</strong> automatically sanitizes and redacts Personally Identifiable Information (PII) before external processing. Additionally, <strong>Ghost Mode</strong> offers zero-persistence querying for sensitive tasks.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🕸️ Interactive Knowledge Graphs</h3>
+      Documents aren't just searched; they are understood. The platform automatically extracts complex entity relationships and visualizes them through dynamic, physics-based UI nodes, allowing users to visually explore data flow and connections.
+    </td>
+    <td width="50%" valign="top">
+      <h3>🤖 Multi-Agent Orchestration</h3>
+      A coordinated ecosystem of specialized agents works in tandem to parse complex tables, extract text from embedded charts, and maintain continuous conversational context across sessions.
+    </td>
+  </tr>
+</table>
 
-```mermaid
-graph TD
-    %% User Interaction
-    User[👤 User] -->|Asks Question| UI[🖥️ React Frontend]
-    UI -->|API Request| Backend[⚙️ FastAPI Backend]
+<br/>
 
-    %% Security & Optimization
-    Backend --> DLP[🛡️ Data Loss Prevention]
-    DLP --> Optimizer[🔍 Query Optimizer]
+## 🏗️ Architecture at a Glance
 
-    %% Retrieval Pipeline
-    Optimizer --> Retrieval{📚 Hybrid Retrieval}
-    Retrieval -->|Vector Similarity| FAISS[(FAISS Vector DB)]
-    Retrieval -->|Keyword Match| BM25[(BM25 Index)]
-    
-    %% Reranking & Context
-    FAISS --> RRF[🔀 Reciprocal Rank Fusion]
-    BM25 --> RRF
-    RRF --> Reranker[⭐ Cross-Encoder Reranker]
+<div align="center">
+  <br/>
+  <p><em>(Doc-Pilot operates on a streamlined, multi-stage pipeline: Ingestion ➝ DLP Sanitization ➝ Query Optimization ➝ Hybrid Retrieval ➝ Reranking ➝ Secure LLM Synthesis ➝ Verification.)</em></p>
+</div>
 
-    %% Answer Generation
-    Reranker --> LLM[🧠 OpenRouter LLM]
-    LLM --> Trust[✅ Trust Metrics]
-    Trust --> UI
-    
-    %% Document Pipeline
-    Doc[📄 Upload Document] --> Ingest[📥 Ingestion Engine]
-    Ingest --> Vision[👁️ Vision Extractor]
-    Ingest --> Chunking[✂️ Text Chunking]
-    Chunking --> FAISS
-    Chunking --> BM25
-    Chunking --> Graph[🕸️ Knowledge Graph Extractor]
-    Graph --> GraphDB[(Graph DB)]
-    GraphDB --> UI
-```
+<br/>
 
----
+## ⚙️ Getting Started
 
-## ✨ Key Features
+### Prerequisites
+* **Python 3.10+**
+* **Node.js 18+**
+* **API Keys:** Supabase & OpenRouter
 
-### 🔍 Advanced Retrieval (RAG)
-- **Hybrid Search Engine:** Combines **FAISS** (Dense Vector Semantic Search) and **BM25** (Sparse Keyword Search) using Reciprocal Rank Fusion (RRF) for unparalleled document retrieval accuracy.
-- **Cross-Encoder Reranking:** Filters and re-orders retrieved chunks to ensure the LLM only sees the most highly relevant context.
-- **Query Optimization:** Automatically rewrites and expands vague user queries into highly descriptive search vectors.
+<details>
+<summary><b>Click to expand Installation Instructions</b></summary>
 
-### 🤖 Multi-Agent Ecosystem
-- **Memory Agent:** Persists chat history safely via Supabase for continuous conversational context.
-- **Vision Agent:** Automatically extracts text and context from images and charts embedded within uploaded PDFs.
-- **Data Agent:** Specialized in interpreting tabular data and structured formats.
+<br/>
 
-### 🛡️ Enterprise Security & Trust
-- **Data Loss Prevention (DLP):** Automatically detects and redacts Personally Identifiable Information (PII) before it ever touches an external LLM.
-- **Trust Metrics:** Every generated answer is scored for confidence, relevance, and hallucination probability.
-- **Ghost Mode:** An incognito mode that instantly disables chat logging and memory persistence for highly sensitive queries.
-
-### 🕸️ Interactive Visualizations
-- **Dynamic Knowledge Graph:** Automatically extracts entities and relationships from your documents and visualizes them using an interactive `ForceGraph2D` engine.
-- **Customizable Themes:** Switch effortlessly between light mode, dark mode, and stunning visual styles like **Neon Cyberpunk** or **Sankey Data Flows**.
-
----
-
-## 🛠️ Technology Stack
-
-| Layer | Technologies Used |
-| :--- | :--- |
-| **Frontend** | React, Vite, Lucide-React, Recharts, React-Force-Graph |
-| **Backend** | Python, FastAPI, Uvicorn |
-| **AI & NLP** | OpenRouter, Sentence-Transformers, Cross-Encoders |
-| **Databases** | Supabase (PostgreSQL), FAISS, MLFlow, Local JSON stores |
-
----
-
-## 🚀 Getting Started
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/abdullatheefmm/Doc-Pilot-AI.git
-cd Doc-Pilot-AI
-```
-
-### 2. Backend Setup
-Navigate to the `Backend` directory, set up your Python environment, and start the server:
+#### 1. Backend Initialization
 ```bash
 cd Backend
 python -m venv .venv
-source .venv/bin/activate  # Or `.venv\Scripts\activate` on Windows
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# Start the FastAPI Server
 python main.py
 ```
 
-### 3. Frontend Setup
-Open a new terminal, navigate to the `frontend` directory, and start the development server:
+#### 2. Frontend Initialization
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-### 4. Environment Variables
-Ensure you have a `.env` file at the root of your project with the following required keys:
+#### 3. Environment Configuration (`.env`)
 ```env
-OPENROUTER_API_KEY=your_openrouter_api_key
-SUPABASE_URL=your_supabase_url
-SUPABASE_KEY=your_supabase_anon_key
+OPENROUTER_API_KEY=sk-or-v1-...
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-anon-key
 ```
+</details>
 
----
+<br/>
 
-## 🔒 Usage & Privacy
-This project is built for enterprise-grade knowledge extraction and retrieval. Please ensure you comply with your organization's data privacy policies before deploying to production environments.
+## 🔒 Security & Privacy Notice
 
-> [!TIP]
-> **Pro Tip:** Toggle **Ghost Mode** in the frontend sidebar whenever querying internal HR or financial documents to ensure zero logging!
+Doc-Pilot AI is engineered with privacy as a foundational principle. All documents remain in your designated local storage or secure internal infrastructure. The integrated DLP pipeline ensures that sensitive data parameters are masked. Always review your organizational data governance policies before bridging to external LLM providers.
+
+<br/>
+
+<div align="center">
+  <p>Built with ❤️ by Abdullatheef</p>
+</div>
