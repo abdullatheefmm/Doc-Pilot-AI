@@ -9,6 +9,7 @@ python-multipart
 python-dotenv
 openai
 pypdf
+pymupdf
 supabase
 python-docx
 python-pptx

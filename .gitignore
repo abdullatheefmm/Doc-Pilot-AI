@@ -10,9 +10,10 @@ brain/
 .venv/
 
 # Backend Caches & Local Data
-Backend/__pycache__/
+**/__pycache__/
 Backend/data/
-Backend/mlflow.db
+data/
+*.db
 
 # Frontend Dependencies & Build
 frontend/node_modules/

@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+_base = Path(__file__).resolve().parent
+for _sub in ["agents", "rag", "knowledge", "analytics", "core"]:
+    _p = str(_base / _sub)
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 import csv
 import io
 import json
 import time as _time
 import uuid
-from pathlib import Path
 from typing import Literal
 
 import os
@@ -267,7 +274,7 @@ def ask_question(request: QueryRequest):
     try:
         if request.search_mode == "web":
             import web_agent
-            web_generator = web_agent.stream_web_answer(request.query)
+            web_generator = web_agent.stream_web_agent(request.query)
             citations = next(web_generator)
             answer_text = "".join(list(web_generator))
             if not request.incognito:
@@ -313,7 +320,7 @@ def ask_question_stream(request: QueryRequest):
     if request.search_mode == "web":
         import web_agent
         def web_stream():
-            web_generator = web_agent.stream_web_answer(request.query)
+            web_generator = web_agent.stream_web_agent(request.query)
             citations = next(web_generator)
             
             meta = {

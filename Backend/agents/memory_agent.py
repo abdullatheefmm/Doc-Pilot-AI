@@ -24,7 +24,7 @@ def store_user_memory(user_id: str, fact: str) -> None:
 
 def _extract_and_store_memory_sync(user_id: str, query: str, answer: str) -> None:
     """Uses LLM to extract long-term facts from the current interaction and stores them."""
-    system_prompt = \"\"\"
+    system_prompt = """
 You are a Memory Extraction Agent.
 Your job is to read the latest interaction between the User and the AI Assistant.
 Extract any personal facts, preferences, or roles about the User that should be remembered for future sessions.
@@ -32,7 +32,7 @@ DO NOT extract transient facts (e.g., "The user asked about X").
 ONLY extract persistent facts (e.g., "The user is a frontend developer", "The user prefers Python code examples", "The user's project is called DocPilot").
 
 Return the output purely as a JSON list of strings representing the facts. If there are no persistent facts to remember, return an empty list [].
-\"\"\"
+"""
     prompt = f"User said: {query}\n\nAssistant replied: {answer}"
     
     try:
