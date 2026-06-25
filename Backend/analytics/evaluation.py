@@ -1,9 +1,12 @@
 import os
 import mlflow
 from typing import List, Dict, Any
+from pathlib import Path
 
-# Configure MLflow to use a local sqlite database
-mlflow.set_tracking_uri("sqlite:///mlflow.db")
+# Configure MLflow to use the local sqlite database in Backend/mlflow.db
+BACKEND_DIR = Path(__file__).resolve().parent.parent
+DB_PATH = BACKEND_DIR / "mlflow.db"
+mlflow.set_tracking_uri(f"sqlite:///{DB_PATH.as_posix()}")
 mlflow.set_experiment("Doc-Pilot-RAG-Experiment")
 
 def log_rag_evaluation(query: str, answer: str, context: List[str], confidence: float, duration_ms: float):
