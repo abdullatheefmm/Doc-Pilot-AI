@@ -25,7 +25,7 @@ export default function Auth({ onAuthSuccess }) {
   // New Registration Flow States
   const [registerStep, setRegisterStep] = useState(1); // 1 or 2
   const [showOtpModal, setShowOtpModal] = useState(false);
-  const [isEmailVerified, setIsEmailVerified] = useState(false);
+  const [, setIsEmailVerified] = useState(false);
   
   const [otp, setOtp] = useState('');
   const [error, setError] = useState(null);
@@ -108,7 +108,7 @@ export default function Auth({ onAuthSuccess }) {
     setError(null);
     setSuccessMsg(null);
     try {
-      const { data, error } = await supabase.auth.verifyOtp({ email, token: otp, type: 'email' });
+      const { error } = await supabase.auth.verifyOtp({ email, token: otp, type: 'email' });
       if (error) throw error;
       setSuccessMsg("Email verified! Please set your password and role.");
       setIsEmailVerified(true);

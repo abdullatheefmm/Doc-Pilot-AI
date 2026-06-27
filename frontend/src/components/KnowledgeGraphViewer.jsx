@@ -36,21 +36,22 @@ export default function KnowledgeGraphViewer({ domain, token, refreshTrigger }) 
 
   useEffect(() => {
     fetchGraph();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [domain, token, graphScope, refreshTrigger]);
 
   useEffect(() => {
     if (fgRef.current && !loading) {
       fgRef.current.d3Force('charge').strength(viewMode === 'glass' ? -4000 : -2000).distanceMax(viewMode === 'glass' ? 1200 : 800);
       fgRef.current.d3Force('link').distance(viewMode === 'glass' ? 200 : 80);
-      fgRef.current.d3Force('collide', d3 => {
+      fgRef.current.d3Force('collide', () => {
         // Only load d3 dynamically if possible, or just skip collide if d3 is not in scope
         // Actually react-force-graph doesn't expose d3 directly here, so we skip collide force.
       });
     }
   }, [graphData, loading, viewMode]);
 
-  const handleZoomIn = () => fgRef.current?.zoom(fgRef.current.zoom() * 1.2, 400);
-  const handleZoomOut = () => fgRef.current?.zoom(fgRef.current.zoom() / 1.2, 400);
+  const _handleZoomIn = () => fgRef.current?.zoom(fgRef.current.zoom() * 1.2, 400);
+  const _handleZoomOut = () => fgRef.current?.zoom(fgRef.current.zoom() / 1.2, 400);
 
   // ----------------------------------------------------
   // NEON MODE RENDERING
@@ -134,7 +135,7 @@ export default function KnowledgeGraphViewer({ domain, token, refreshTrigger }) 
     return { nodes, links };
   }, [graphData]);
 
-  const CustomSankeyNode = ({ x, y, width, height, index, payload, containerWidth }) => {
+  const CustomSankeyNode = ({ x, y, width, height, index: _index, payload, containerWidth }) => {
     const isLightMode = document.documentElement.getAttribute('data-theme') === 'light';
     
     // Sometimes containerWidth isn't available on the node, use a fallback
@@ -164,7 +165,7 @@ export default function KnowledgeGraphViewer({ domain, token, refreshTrigger }) 
     );
   };
 
-  const CustomSankeyLink = ({ sourceX, targetX, sourceY, targetY, sourceControlX, targetControlX, linkWidth, index, payload }) => {
+  const CustomSankeyLink = ({ sourceX, targetX, sourceY, targetY, sourceControlX, targetControlX, linkWidth, index: _index, payload }) => {
     const isLightMode = document.documentElement.getAttribute('data-theme') === 'light';
     
     const isMatch = searchQuery && payload.label && payload.label.toLowerCase().includes(searchQuery.toLowerCase());

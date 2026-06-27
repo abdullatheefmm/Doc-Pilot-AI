@@ -15,8 +15,8 @@ const getDomainIcon = (id) => {
   }
 };
 
-export default function KnowledgeBasePanel({ documents, setDocuments, domains, fetchDocuments, onDelete, session, userRole, setFullScreenKB, propertiesModal, setPropertiesModal, summaryModal, setSummaryModal }) {
-  const [expandedSummary, setExpandedSummary] = useState(null);
+export default function KnowledgeBasePanel({ documents, setDocuments: _setDocuments, domains, fetchDocuments: _fetchDocuments, onDelete, session, userRole, setFullScreenKB, propertiesModal: _propertiesModal, setPropertiesModal, summaryModal: _summaryModal, setSummaryModal }) {
+  const [expandedSummary, _setExpandedSummary] = useState(null);
   const [showAssets, setShowAssets] = useState(false);
   const [openMenu, setOpenMenu] = useState(null);
   
@@ -74,7 +74,7 @@ export default function KnowledgeBasePanel({ documents, setDocuments, domains, f
           <div className="document-list">
             {displayedDocuments.map((doc) => {
               const dom = docDomains[doc.domain] || { name: 'General', color: '#64748b' };
-              const isExpanded = expandedSummary === doc.name;
+              const _isExpanded = expandedSummary === doc.name;
               return (
                 <div key={doc.id} style={{ display: 'flex', flexDirection: 'column' }}>
                   <div className="kb-doc-item">

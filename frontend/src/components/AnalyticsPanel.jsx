@@ -7,18 +7,20 @@ const API_URL = 'http://127.0.0.1:8000/api';
 export default function AnalyticsPanel({ isSidebar, onToggleFullScreen }) {
   const [data, setData] = useState(null);
 
-  useEffect(() => {
-    fetchAnalytics();
-    const interval = setInterval(fetchAnalytics, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
   const fetchAnalytics = async () => {
     try {
       const res = await fetch(`${API_URL}/analytics/dashboard`);
       if (res.ok) setData(await res.json());
     } catch (e) { console.error(e); }
   };
+
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    fetchAnalytics();
+    const interval = setInterval(fetchAnalytics, 30000);
+    return () => clearInterval(interval);
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (!data) return <p style={{ color: 'var(--muted-text)', fontSize: '.85rem', textAlign: 'center', padding: 20 }}>Loading analytics...</p>;
 

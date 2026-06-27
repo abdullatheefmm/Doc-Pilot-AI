@@ -1,20 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Activity, ShieldCheck, Database, Search } from 'lucide-react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from 'recharts';
 
 export default function MLOpsDashboard() {
-  const [metrics, setMetrics] = useState(null);
-
-  useEffect(() => {
-    // In production, this would fetch from MLflow or a custom backend endpoint
-    setMetrics({
-      faithfulness: 0.94,
-      answerRelevance: 0.89,
-      contextPrecision: 0.92,
-      semanticSimilarity: 0.85,
-      latency: 1.2
-    });
-  }, []);
+  const [metrics] = useState({
+    faithfulness: 0.94,
+    answerRelevance: 0.89,
+    contextPrecision: 0.92,
+    semanticSimilarity: 0.85,
+    latency: 1.2
+  });
 
   if (!metrics) return <div style={{ padding: 24, color: 'var(--muted-text)' }}>Loading MLOps Telemetry...</div>;
 

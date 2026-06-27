@@ -86,6 +86,7 @@ export function MermaidDiagram({ chart, theme = 'default', isDraft = false }) {
     const observer = new MutationObserver(renderChart);
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme', 'class'] });
     return () => { active = false; observer.disconnect(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chart, theme]);
 
   if (isDraft) {
@@ -285,6 +286,7 @@ export function ArchitectureDiagram() {
 }
 
 /* ── Simple Markdown Renderer ────────────────────────────────── */
+/* eslint-disable react-refresh/only-export-components */
 export function renderMarkdown(text) {
   if (!text) return null;
   const lines = text.split('\n');

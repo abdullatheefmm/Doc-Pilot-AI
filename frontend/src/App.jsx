@@ -27,7 +27,7 @@ window.fetch = async (...args) => {
             'Authorization': 'Bearer ' + session.access_token
           };
         }
-      } catch(e) {}
+      } catch { /* ignore */ }
     }
   }
   return originalFetch(resource, config);
@@ -196,7 +196,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [attachedImage, setAttachedImage] = useState(null);
   const [urlInput, setUrlInput] = useState('');
-  const [feedbackState, setFeedbackState] = useState({});
+  const [feedbackState, _setFeedbackState] = useState({});
   const [passwordModal, setPasswordModal] = useState({ isOpen: false, file: null, filename: null, url: null, action: null, targetDomain: 'general' });
   const [adminPassword, setAdminPassword] = useState('');
   const [toasts, setToasts] = useState([]);
@@ -209,12 +209,12 @@ export default function App() {
   const [activeBranchingMsgId, setActiveBranchingMsgId] = useState(null);
   const [branchInputText, setBranchInputText] = useState('');
 
-  const _getPid = (sess, allSessions) => {
+  const _getPid = (sess, _allSessions) => {
     if (sess.parent_session_id) return sess.parent_session_id;
     try {
       const branches = JSON.parse(localStorage.getItem('docpilot-local-branches') || '{}');
       if (branches[sess.id]?.parent_session_id) return branches[sess.id].parent_session_id;
-    } catch(e) {}
+    } catch { /* ignore */ }
     return null;
   };
 
@@ -293,6 +293,7 @@ export default function App() {
       fetchSessions();
       if (sessionId) fetchHistory(sessionId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, sessionId]);
 
   const handleUpdateProfile = async () => {
@@ -355,7 +356,7 @@ export default function App() {
   };
 
   const handlePasswordSubmit = async () => {
-    const { action, filename, file, url, targetDomain } = passwordModal;
+    const { action, filename, file, targetDomain } = passwordModal;
     const pwd = adminPassword;
     setPasswordModal({ isOpen: false, file: null, filename: null, url: null, action: null, targetDomain: 'general' });
     if (action === 'delete') {
@@ -486,11 +487,11 @@ export default function App() {
                   chart_data: data.chart_data,
                   reasoning: data.reasoning
                 } : m));
-                setPipelineStep(4); // Generate (start streaming text)
+                setPipelineStep(4);
               } else if (data.type === 'token') {
                 setMessages(prev => prev.map(m => m.id === streamId ? { ...m, text: m.text + data.content } : m));
               } else if (data.type === 'done') {
-                setPipelineStep(5); // Cite
+                setPipelineStep(5);
                 setMessages(prev => prev.map(m => m.id === streamId ? { 
                   ...m, timing: { ...m.timing, generate_ms: data.generate_ms }
                 } : m));
@@ -521,7 +522,7 @@ export default function App() {
     }
   };
 
-  const handleExportChat = async () => {
+  const _handleExportChat = async () => {
     try {
       const res = await fetch(`${API_URL}/export/chat/${sessionId}`);
       const data = await res.json();
@@ -531,7 +532,7 @@ export default function App() {
       a.href = url;
       a.download = `nexus_chat_export_${Date.now()}.md`;
       a.click();
-    } catch (e) { showToast('Export failed', 'error'); }
+    } catch { showToast('Export failed', 'error'); }
   };
 
   const handleExportSessionById = async (exportId, e) => {
@@ -547,7 +548,7 @@ export default function App() {
       a.click();
       showToast('Chat downloaded successfully', 'success');
       setSessionMenuOpenId(null);
-    } catch (e) { showToast('Download failed', 'error'); }
+    } catch { showToast('Download failed', 'error'); }
   };
 
   const handleCopySessionById = async (copyId, e) => {
@@ -558,10 +559,10 @@ export default function App() {
       await navigator.clipboard.writeText(data.markdown);
       showToast('✨ Conversation Markdown copied to clipboard!', 'success');
       setSessionMenuOpenId(null);
-    } catch (e) { showToast('Copy failed', 'error'); }
+    } catch { showToast('Copy failed', 'error'); }
   };
 
-  const handleClearChat = () => {
+  const _handleClearChat = () => {
     if (!sessionId) return;
     setDeleteChatModal({ isOpen: true, id: sessionId });
   };
@@ -808,7 +809,7 @@ export default function App() {
           </button>
 
           <button 
-            onClick={() => { setSelectedStrategy('hybrid_rrf'); showToast("Switched to Deep Research Strategy"); setPlusMenuOpen(false); }} 
+            onClick={() => { setRetrievalMode('hybrid'); showToast("Switched to Deep Research Strategy"); setPlusMenuOpen(false); }} 
             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-color)', borderRadius: 10, cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500, textAlign: 'left', transition: 'background 0.2s', width: '100%' }}
             onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}

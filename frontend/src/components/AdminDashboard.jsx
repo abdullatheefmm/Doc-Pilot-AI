@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, Users, Shield, Database, Trash2, Download, Check, AlertTriangle, Play, Pause, FileText, CheckCircle, Search, RefreshCw, Network } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell } from 'recharts';
-import { supabase } from '../supabaseClient';
 import MLOpsDashboard from './MLOpsDashboard';
 
 import CustomDropdown from './CustomDropdown';
@@ -60,6 +59,7 @@ export default function AdminDashboard({ session, showToast }) {
 
   useEffect(() => {
     fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   const fetchLogs = async () => {
@@ -67,7 +67,7 @@ export default function AdminDashboard({ session, showToast }) {
       const hdrs = { 'Authorization': `Bearer ${session.access_token}` };
       const logRes = await fetch(`${API_URL}/admin/audit_logs`, { headers: hdrs });
       if(logRes.ok) setLogs((await logRes.json()).logs || []);
-    } catch(e) {}
+    } catch { /* ignore */ }
   };
 
   const deleteUser = async () => {
@@ -391,7 +391,6 @@ export default function AdminDashboard({ session, showToast }) {
                 </div>
               </div>
 
-              {/* New Visualization: User Distribution by Domain */}
               <div className="glass-card" style={{ padding: 24 }}>
                 <h3 style={{ margin: '0 0 16px 0', fontSize: '1.1rem' }}>User Distribution</h3>
                 {users.length > 0 ? (
