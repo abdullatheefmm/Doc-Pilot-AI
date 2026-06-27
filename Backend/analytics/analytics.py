@@ -8,6 +8,50 @@ from supabase_client import supabase
 def init_analytics_db() -> None:
     pass
 
+
+# ─── Generic Audit Event Logger ──────────────────────────────────────────────
+
+def log_audit_event(
+    action_type: str,
+    user_id: str | None = None,
+    domain: str | None = None,
+    details: dict | None = None,
+) -> None:
+    """
+    Log any action to the audit_logs table.
+    
+    Supported action_types:
+      - chat_query           : Regular chat query (visible user-side)
+      - ghost_query          : Ghost-mode query (hidden from user, visible to admin)
+      - upload_document      : File uploaded
+      - delete_document      : File deleted
+      - login                : User logged in
+      - logout               : User logged out
+      - ghost_mode_on        : Ghost mode activated
+      - ghost_mode_off       : Ghost mode deactivated
+      - knowledge_graph_view : Knowledge graph opened
+      - document_view        : A document was previewed/accessed
+      - knowledge_base_view  : Knowledge base panel opened
+    """
+    if not supabase:
+        return
+    try:
+        d = details or {}
+        if domain:
+            d["domain"] = domain
+
+        supabase.table("audit_logs").insert({
+            "action_type": action_type,
+            "user_id": user_id,
+            "details": d,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }).execute()
+    except Exception as e:
+        print(f"[Audit] Failed to log '{action_type}': {e}")
+
+
+# ─── Chat Query Logger ────────────────────────────────────────────────────────
+
 def log_query(
     query: str,
     answer: str = "",
@@ -19,24 +63,60 @@ def log_query(
     cached: bool = False,
     session_id: str = "",
     user_id: str | None = None,
+    incognito: bool = False,
 ) -> None:
-    if not supabase: return
+    """
+    Logs a chat query.
+
+    - If incognito=False  → saved to both query_log (user history) AND audit_logs (admin).
+    - If incognito=True   → saved ONLY to audit_logs as 'ghost_query' (NOT visible in user history).
+    """
+    if not supabase:
+        return
+
+    action_type = "ghost_query" if incognito else "chat_query"
+
     try:
-        supabase.table("query_log").insert({
+        # Always log to audit_logs (admin-visible, regardless of ghost mode)
+        supabase.table("audit_logs").insert({
+            "action_type": action_type,
             "user_id": user_id,
-            "query": query,
-            "answer": answer,
-            "confidence": confidence,
-            "response_time_ms": response_time_ms,
-            "sources": sources or [],
-            "domain": domain or "",
-            "intent": intent,
-            "cached": cached,
-            "session_id": session_id,
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "details": {
+                "domain": domain or "",
+                "query": query,
+                "tokens_used": len(answer) // 4,
+                "confidence": confidence,
+                "cache_hit": cached,
+                "retrieved_docs": sources or [],
+                "intent": intent,
+                "incognito": incognito,
+            },
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }).execute()
     except Exception as e:
-        print(f"Error logging query: {e}")
+        print(f"[Audit] Failed to log {action_type}: {e}")
+
+    # Only log to query_log (user history) if NOT in ghost mode
+    if not incognito:
+        try:
+            supabase.table("query_log").insert({
+                "user_id": user_id,
+                "query": query,
+                "answer": answer,
+                "confidence": confidence,
+                "response_time_ms": response_time_ms,
+                "sources": sources or [],
+                "domain": domain or "",
+                "intent": intent,
+                "cached": cached,
+                "session_id": session_id,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }).execute()
+        except Exception as e:
+            print(f"[Audit] Failed to log query_log: {e}")
+
+
+# ─── Dashboard Data ───────────────────────────────────────────────────────────
 
 def get_dashboard_data() -> dict[str, Any]:
     if not supabase:

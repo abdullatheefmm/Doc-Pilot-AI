@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
-import { Bot, ChevronDown, ChevronRight, Database, Globe, Lock, Download, Moon, Send, Square, Sparkles, SunMedium, ThumbsDown, ThumbsUp, UploadCloud, User, Trash2, X, XCircle, AlertTriangle, Loader2, Ghost, Info, FileText, Paperclip, ImageIcon, Network } from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight, Database, Globe, Lock, Download, Moon, Send, Square, Sparkles, SunMedium, ThumbsDown, ThumbsUp, UploadCloud, User, Trash2, X, XCircle, AlertTriangle, Loader2, Ghost, Info, FileText, Paperclip, ImageIcon, Network, PanelLeftClose, PanelLeft, RefreshCw, Plus, MoreHorizontal, Copy } from 'lucide-react';
 import AnalyticsPanel from './components/AnalyticsPanel';
 import KnowledgeBasePanel, { AllDocumentsModal } from './components/KnowledgeBasePanel';
 import { ConfidenceGauge, PipelineBar, QueryTimeline, RetrievalScoreBars, renderMarkdown, ArchitectureDiagram } from './components/Visuals';
@@ -39,6 +39,19 @@ const THEME_STORAGE_KEY = 'nexus-theme';
 
 const createSessionId = () => `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+const logAuditEvent = async (actionType, userId = null, domain = null, details = {}) => {
+  try {
+    await fetch(`${API_URL}/log-event`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action_type: actionType, user_id: userId, domain, details }),
+    });
+  } catch (e) {
+    // Silent fail — audit logging must never break the UX
+    console.debug('[Audit] log-event failed:', e);
+  }
+};
+
 const OPENROUTER_MODELS = [
   { id: 'meta-llama/llama-3.3-70b-instruct', name: 'Llama 3.3 70B' },
   { id: 'openai/gpt-4o', name: 'GPT-4o' },
@@ -54,7 +67,11 @@ export default function App() {
   });
 
   const handleLogout = () => {
+    if (session?.user?.email) {
+      logAuditEvent('logout', session.user.id, userRole, { full_name: userFullName });
+    }
     localStorage.removeItem('docpilot-session-data');
+    sessionStorage.removeItem('login-logged');
     setSession(null);
   };
 
@@ -84,13 +101,21 @@ export default function App() {
   const [theme, setTheme] = useState(localStorage.getItem(THEME_STORAGE_KEY) || 'dark');
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
+  const [isMultiLinePrompt, setIsMultiLinePrompt] = useState(false);
   
   const textareaRef = useRef(null);
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = '24px';
-      const scrollHeight = textareaRef.current.scrollHeight;
-      textareaRef.current.style.height = Math.min(scrollHeight, 150) + 'px';
+      const sh = textareaRef.current.scrollHeight;
+      textareaRef.current.style.height = Math.min(sh, 150) + 'px';
+      setIsMultiLinePrompt(prev => {
+        if (!inputValue.trim()) return false;
+        if (inputValue.includes('\n')) return true;
+        if (sh > 36) return true;
+        if (prev && sh <= 36 && inputValue.length < 40) return false;
+        return prev;
+      });
     }
   }, [inputValue]);
 
@@ -102,6 +127,13 @@ export default function App() {
   const [currentStreamId, setCurrentStreamId] = useState(null);
   const [abortController, setAbortController] = useState(null);
   const [deleteChatModal, setDeleteChatModal] = useState({ isOpen: false, id: null });
+  const [sessionMenuOpenId, setSessionMenuOpenId] = useState(null);
+
+  useEffect(() => {
+    const closeMenu = () => setSessionMenuOpenId(null);
+    window.addEventListener('click', closeMenu);
+    return () => window.removeEventListener('click', closeMenu);
+  }, []);
   
   // Settings & Data
   const [topK, setTopK] = useState(4);
@@ -141,6 +173,15 @@ export default function App() {
                 }
             }
           }
+          // Log login event to admin audit trail
+          if (data && session?.user?.email && !sessionStorage.getItem('login-logged')) {
+            logAuditEvent('login', session.user.id, data.role || 'general', {
+              full_name: data.full_name,
+              role: data.role,
+              status: data.status || 'active',
+            });
+            sessionStorage.setItem('login-logged', 'true');
+          }
         });
     } else {
       setUserRole('general');
@@ -161,6 +202,51 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [chatSessions, setChatSessions] = useState([]);
   const [selectedModel, setSelectedModel] = useState(OPENROUTER_MODELS[0].id);
+  const [treeModalOpen, setTreeModalOpen] = useState(false);
+  const [zoomedMedia, setZoomedMedia] = useState(null);
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
+  const [activeBranchingMsgId, setActiveBranchingMsgId] = useState(null);
+  const [branchInputText, setBranchInputText] = useState('');
+
+  const _getPid = (sess, allSessions) => {
+    if (sess.parent_session_id) return sess.parent_session_id;
+    try {
+      const branches = JSON.parse(localStorage.getItem('docpilot-local-branches') || '{}');
+      if (branches[sess.id]?.parent_session_id) return branches[sess.id].parent_session_id;
+    } catch(e) {}
+    return null;
+  };
+
+  const handleCreateBranch = async (msgId, queryText) => {
+    if (!sessionId || !queryText.trim()) return;
+    const branchTitle = queryText.trim().slice(0, 32) + "...";
+    setActiveBranchingMsgId(null);
+    setBranchInputText('');
+    try {
+      const res = await fetch(`${API_URL}/history/branch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parent_session_id: sessionId, message_id: msgId, title: branchTitle, user_id: session?.user?.id })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const newBranchId = data.session_id;
+        const branches = JSON.parse(localStorage.getItem('docpilot-local-branches') || '{}');
+        branches[newBranchId] = { parent_session_id: sessionId, branch_point_message_id: msgId };
+        localStorage.setItem('docpilot-local-branches', JSON.stringify(branches));
+        // Switch to new branch session first
+        setSessionId(newBranchId);
+        await fetchSessions();
+        await fetchHistory(newBranchId);
+        showToast("🔀 Branch created — switched to new thread!");
+        // Pass the new branch ID explicitly to avoid stale closure bug
+        setTimeout(() => {
+          handleSend(queryText, newBranchId);
+        }, 150);
+      }
+    } catch(e) { console.error(e); }
+  };
 
   const fetchSessions = async () => {
     try {
@@ -258,7 +344,7 @@ export default function App() {
       const res = await fetch(`${API_URL}/history?session_id=${sid}`);
       const data = await res.json();
       const historyMessages = (data.history || []).map((item, i) => ({
-        id: `history-${i}`,
+        id: item.id || item.message_id || `history-${i}`,
         role: item.role === 'assistant' ? 'assistant' : 'user',
         text: item.content,
         sources: [],
@@ -328,9 +414,11 @@ export default function App() {
     }
   };
 
-  const handleSend = async () => {
-    const query = inputValue.trim();
-    if (!query || isStreaming || !sessionId) return;
+  const handleSend = async (customQuery = null, explicitSessionId = null, skipCache = false) => {
+    const query = (customQuery !== null && typeof customQuery === 'string') ? customQuery.trim() : inputValue.trim();
+    // Use explicitly passed session ID (for branch sends) or fall back to state
+    const activeSessionId = explicitSessionId || sessionId;
+    if (!query || isStreaming || !activeSessionId) return;
 
     setMessages(prev => [...prev, { id: `user-${Date.now()}`, role: 'user', text: query, attachedImage }]);
     setInputValue('');
@@ -357,11 +445,12 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         signal: controller.signal,
         body: JSON.stringify({ 
-          query, session_id: sessionId, top_k: topK, 
+          query, session_id: activeSessionId, top_k: topK, 
           threshold: similarityThreshold, retrieval_mode: retrievalMode, domain: activeDomainFilter || null,
           search_mode: webSearchEnabled ? "web" : "internal", model: selectedModel,
           user_id: session?.user?.id || null, user_role: userRole || "general",
-          incognito: incognitoMode
+          incognito: incognitoMode,
+          skip_cache: skipCache
         }),
       });
 
@@ -387,7 +476,7 @@ export default function App() {
             if (!dataStr) continue;
             try {
               const data = JSON.parse(dataStr);
-              if (data.type === 'meta') {
+              if (data.type === 'meta' || data.type === 'metadata') {
                 setPipelineStep(3); // Ground
                 setMessages(prev => prev.map(m => m.id === streamId ? { 
                   ...m, confidence: data.confidence, intent: data.intent, 
@@ -443,6 +532,33 @@ export default function App() {
       a.download = `nexus_chat_export_${Date.now()}.md`;
       a.click();
     } catch (e) { showToast('Export failed', 'error'); }
+  };
+
+  const handleExportSessionById = async (exportId, e) => {
+    e?.stopPropagation();
+    try {
+      const res = await fetch(`${API_URL}/export/chat/${exportId}`);
+      const data = await res.json();
+      const blob = new Blob([data.markdown], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `docpilot_chat_${exportId.slice(-6)}_${Date.now()}.md`;
+      a.click();
+      showToast('Chat downloaded successfully', 'success');
+      setSessionMenuOpenId(null);
+    } catch (e) { showToast('Download failed', 'error'); }
+  };
+
+  const handleCopySessionById = async (copyId, e) => {
+    e?.stopPropagation();
+    try {
+      const res = await fetch(`${API_URL}/export/chat/${copyId}`);
+      const data = await res.json();
+      await navigator.clipboard.writeText(data.markdown);
+      showToast('✨ Conversation Markdown copied to clipboard!', 'success');
+      setSessionMenuOpenId(null);
+    } catch (e) { showToast('Copy failed', 'error'); }
   };
 
   const handleClearChat = () => {
@@ -629,8 +745,144 @@ export default function App() {
   }
 
 
+  const renderLeftControls = () => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, position: 'relative' }}>
+      <button 
+        className="icon-btn" 
+        onClick={() => setPlusMenuOpen(!plusMenuOpen)} 
+        disabled={isStreaming}
+        title="Attach files & tools"
+        style={{
+          width: 32, height: 32, borderRadius: '50%', flexShrink: 0,
+          background: plusMenuOpen ? 'var(--accent-color)' : 'rgba(255,255,255,0.08)',
+          color: plusMenuOpen ? '#fff' : 'var(--text-color)',
+          border: '1px solid rgba(255,255,255,0.15)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer', transition: 'all 0.2s', padding: 0
+        }}
+      >
+        <Plus size={18} style={{ transform: plusMenuOpen ? 'rotate(45deg)' : 'none', transition: 'transform 0.2s' }} />
+      </button>
+
+      {webSearchEnabled && (
+        <span style={{ fontSize: '0.75rem', background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)', padding: '2px 8px', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600, whiteSpace: 'nowrap' }}>
+          <Globe size={12} /> Web
+        </span>
+      )}
+
+      {plusMenuOpen && (
+        <div style={{
+          position: 'absolute', bottom: 'calc(100% + 12px)', left: 0, width: 230,
+          background: 'var(--panel-bg)', backdropFilter: 'blur(24px)', border: '1px solid var(--border-color)',
+          borderRadius: 16, padding: 8, boxShadow: '0 12px 30px rgba(0,0,0,0.6)', zIndex: 1000,
+          display: 'flex', flexDirection: 'column', gap: 4, animation: 'fadeIn 0.15s ease'
+        }}>
+          <button 
+            onClick={() => { imageInputRef.current?.click(); setPlusMenuOpen(false); }} 
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-color)', borderRadius: 10, cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500, textAlign: 'left', transition: 'background 0.2s', width: '100%' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <Paperclip size={18} color="#3b82f6" /> Add photos and files
+          </button>
+
+          <button 
+            onClick={() => { setWebSearchEnabled(!webSearchEnabled); setPlusMenuOpen(false); }} 
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-color)', borderRadius: 10, cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500, textAlign: 'left', transition: 'background 0.2s', width: '100%' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Globe size={18} color={webSearchEnabled ? "#10b981" : "#64748b"} /> Web Search
+            </span>
+            <span style={{ fontSize: '0.75rem', fontWeight: 700, color: webSearchEnabled ? '#10b981' : 'var(--muted-text)' }}>{webSearchEnabled ? 'ON' : 'OFF'}</span>
+          </button>
+
+          <button 
+            onClick={() => { setShowKnowledgeGraph(true); setPlusMenuOpen(false); }} 
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-color)', borderRadius: 10, cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500, textAlign: 'left', transition: 'background 0.2s', width: '100%' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <Network size={18} color="#8b5cf6" /> Knowledge Graph
+          </button>
+
+          <button 
+            onClick={() => { setSelectedStrategy('hybrid_rrf'); showToast("Switched to Deep Research Strategy"); setPlusMenuOpen(false); }} 
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'transparent', border: 'none', color: 'var(--text-color)', borderRadius: 10, cursor: 'pointer', fontSize: '0.9rem', fontWeight: 500, textAlign: 'left', transition: 'background 0.2s', width: '100%' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <Sparkles size={18} color="#f59e0b" /> Deep Research (RRF)
+          </button>
+        </div>
+      )}
+
+      <div style={{ position: 'relative' }}>
+        <input type="file" ref={imageInputRef} accept="image/*" hidden onChange={e => {
+          const file = e.target.files?.[0];
+          if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => setAttachedImage(reader.result);
+            reader.readAsDataURL(file);
+          }
+        }} />
+        {attachedImage && (
+          <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 12, background: 'var(--panel-bg)', padding: 4, borderRadius: 8, border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.2)', zIndex: 100 }}>
+            <img src={attachedImage} alt="preview" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
+            <button className="icon-btn" onClick={() => setAttachedImage(null)} style={{ padding: 2 }}><X size={14}/></button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderRightControls = () => (
+    <div style={{ flexShrink: 0 }}>
+      {isStreaming ? (
+        <button className="primary-button" onClick={handleStopGeneration} style={{ padding: '6px 14px', borderRadius: 8, background: 'var(--warning-color)', color: '#fff', boxShadow: 'none' }}>
+          <Square size={14} fill="currentColor" /> Stop
+        </button>
+      ) : (
+        <button className="primary-button" onClick={handleSend} disabled={!inputValue.trim() && !attachedImage} style={{ padding: '6px 14px', borderRadius: 8 }}>
+          <Send size={14} /> Send
+        </button>
+      )}
+    </div>
+  );
+
+  const renderTextarea = () => (
+    <textarea
+      ref={textareaRef}
+      value={inputValue}
+      onChange={e => {
+        setInputValue(e.target.value);
+        e.target.style.height = 'auto';
+        const sh = e.target.scrollHeight;
+        e.target.style.height = Math.min(sh, 150) + 'px';
+        setIsMultiLinePrompt(prev => {
+          if (!e.target.value.trim()) return false;
+          if (e.target.value.includes('\n')) return true;
+          if (sh > 36) return true;
+          if (prev && sh <= 36 && e.target.value.length < 40) return false;
+          return prev;
+        });
+      }}
+      onKeyDown={e => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          if (!isStreaming && inputValue.trim()) handleSend();
+        }
+      }}
+      placeholder={userRole !== 'super_admin' ? `Ask a question strictly in ${domains.find(d => d.id === userRole)?.name || userRole}...` : activeDomainFilter ? `Search in ${domains.find(d => d.id === activeDomainFilter)?.name}...` : "Ask a grounded question across all domains..."}
+      disabled={isStreaming}
+      style={{ width: '100%', fontSize: '0.95rem', minHeight: '24px', maxHeight: '150px', resize: 'none', overflowY: 'auto', background: 'transparent', border: 'none', color: 'inherit', outline: 'none', lineHeight: '1.4', display: 'block', padding: '2px 0' }}
+      rows={1}
+    />
+  );
+
   return (
-    <div className={`app-shell ${incognitoMode ? 'ghost-theme' : ''}`}>
+    <div className={`app-shell ${incognitoMode ? 'ghost-theme' : ''} ${leftSidebarCollapsed ? 'sidebar-closed' : ''}`}>
       {/* Toasts */}
       <div className="toast-container">
         {toasts.map(t => (
@@ -671,15 +923,24 @@ export default function App() {
         </div>
       )}
 
-      <aside className="sidebar-card" style={{ width: sidebarWidth, flexShrink: 0, position: 'relative' }}>
-        <div className="sidebar-header">
-          <div className="brand-lockup">
-            <div className="brand-orb"><Sparkles size={18} /></div>
-            <div>
-              <h1>DocPilot AI</h1>
+      {!leftSidebarCollapsed && (
+        <aside className="sidebar-card" style={{ width: sidebarWidth, flexShrink: 0, position: 'relative' }}>
+          <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div className="brand-lockup" style={{ marginBottom: 0 }}>
+              <div className="brand-orb"><Sparkles size={18} /></div>
+              <div>
+                <h1>DocPilot AI</h1>
+              </div>
             </div>
+            <button 
+              className="icon-btn" 
+              onClick={() => setLeftSidebarCollapsed(true)} 
+              title="Close sidebar"
+              style={{ padding: 6 }}
+            >
+              <PanelLeftClose size={18} />
+            </button>
           </div>
-        </div>
 
         <div className="sidebar-tabs">
           <button className={`sidebar-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => handleTabChange('settings')}>Control</button>
@@ -755,7 +1016,16 @@ export default function App() {
               
               <div className="sidebar-section" style={{ marginTop: 32 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <p className="sidebar-title" style={{ margin: 0 }}>Previous Chats</p>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <p className="sidebar-title" style={{ margin: 0 }}>Previous Chats</p>
+                    <button 
+                      onClick={() => setTreeModalOpen(true)} 
+                      style={{ background: 'rgba(139,92,246,0.15)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.4)', padding: '2px 8px', borderRadius: 6, fontSize: '0.72rem', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+                      title="View Conversation Tree"
+                    >
+                      <Network size={12} /> Tree
+                    </button>
+                  </div>
                   <button onClick={() => { setSessionId(createSessionId()); setMessages([]); }} style={{ background: 'var(--accent-color)', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: 6, fontSize: '0.7rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
                     <Sparkles size={12} /> New Chat
                   </button>
@@ -764,17 +1034,55 @@ export default function App() {
                   {chatSessions.length === 0 ? (
                     <div style={{ fontSize: '0.8rem', color: 'var(--muted-text)', padding: '8px 0' }}>No previous chats yet.</div>
                   ) : (
-                    chatSessions.map(cs => (
-                      <div key={cs.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <button className="suggestion-chip" onClick={() => { setSessionId(cs.id); fetchHistory(cs.id); }} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4, flex: 1, overflow: 'hidden' }}>
-                          <div style={{ fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>{cs.title}</div>
-                          <div style={{ fontSize: '0.65rem', color: 'var(--muted-text)' }}>{new Date(cs.created_at).toLocaleDateString()}</div>
-                        </button>
-                        <button onClick={(e) => handleDeleteSession(cs.id, e)} style={{ background: 'transparent', border: 'none', color: 'var(--muted-text)', cursor: 'pointer', padding: '4px' }} title="Delete Chat">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))
+                    (() => {
+                      const rootSessions = chatSessions.filter(cs => !_getPid(cs, chatSessions));
+                      const getChildren = (pid) => chatSessions.filter(cs => _getPid(cs, chatSessions) === pid);
+                      const renderSessionItem = (cs, depth = 0) => {
+                        const children = getChildren(cs.id);
+                        return (
+                          <React.Fragment key={cs.id}>
+                            <div className={depth > 0 ? "sidebar-branch-child" : ""} style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: depth * 14, borderLeft: depth > 0 ? '2px solid rgba(139, 92, 246, 0.4)' : 'none', paddingLeft: depth > 0 ? 8 : 0, marginTop: depth > 0 ? 4 : 0, position: 'relative' }}>
+                              <button className={`suggestion-chip ${sessionId === cs.id ? 'active' : ''}`} onClick={() => { setSessionId(cs.id); fetchHistory(cs.id); }} style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 4, flex: 1, overflow: 'hidden', background: depth > 0 ? 'rgba(139,92,246,0.08)' : undefined }}>
+                                <div style={{ fontWeight: 600, fontSize: depth > 0 ? '0.75rem' : '0.8rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%', color: depth > 0 ? '#c4b5fd' : undefined }}>
+                                  {depth > 0 ? '↳ ' : ''}{cs.title}
+                                </div>
+                                <div style={{ fontSize: '0.65rem', color: 'var(--muted-text)' }}>{new Date(cs.created_at).toLocaleDateString()}</div>
+                              </button>
+                              <div style={{ position: 'relative' }}>
+                                <button 
+                                  onClick={(e) => { e.stopPropagation(); setSessionMenuOpenId(sessionMenuOpenId === cs.id ? null : cs.id); }} 
+                                  style={{ background: sessionMenuOpenId === cs.id ? 'rgba(255,255,255,0.1)' : 'transparent', border: 'none', color: 'var(--muted-text)', cursor: 'pointer', padding: '6px 4px', borderRadius: 6, display: 'flex', alignItems: 'center' }} 
+                                  title="Chat Options"
+                                >
+                                  <MoreHorizontal size={16} />
+                                </button>
+
+                                {sessionMenuOpenId === cs.id && (
+                                  <div 
+                                    className="popover" 
+                                    onClick={e => e.stopPropagation()} 
+                                    style={{ position: 'absolute', top: '100%', right: 0, zIndex: 100, minWidth: 160, padding: 6, borderRadius: 10, background: 'var(--panel-bg)', border: '1px solid var(--border-color)', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', gap: 2 }}
+                                  >
+                                    <button className="menu-item" onClick={(e) => handleCopySessionById(cs.id, e)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--text-color)', cursor: 'pointer', textAlign: 'left', width: '100%', fontSize: '0.8rem' }}>
+                                      <Copy size={14} style={{ color: 'var(--accent-color)' }} /> <span>Copy Markdown</span>
+                                    </button>
+                                    <button className="menu-item" onClick={(e) => handleExportSessionById(cs.id, e)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, border: 'none', background: 'transparent', color: 'var(--text-color)', cursor: 'pointer', textAlign: 'left', width: '100%', fontSize: '0.8rem' }}>
+                                      <Download size={14} style={{ color: '#10b981' }} /> <span>Download Chat</span>
+                                    </button>
+                                    <div style={{ height: 1, background: 'var(--border-color)', margin: '2px 0' }} />
+                                    <button className="menu-item" onClick={(e) => { setSessionMenuOpenId(null); handleDeleteSession(cs.id, e); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, border: 'none', background: 'transparent', color: '#ef4444', cursor: 'pointer', textAlign: 'left', width: '100%', fontSize: '0.8rem', fontWeight: 600 }}>
+                                      <Trash2 size={14} /> <span>Delete Chat</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            {children.map(ch => renderSessionItem(ch, depth + 1))}
+                          </React.Fragment>
+                        );
+                      };
+                      return rootSessions.map(rs => renderSessionItem(rs, 0));
+                    })()
                   )}
                 </div>
               </div>
@@ -920,41 +1228,31 @@ export default function App() {
         >
           <div style={{ width: 2, height: 24, background: 'var(--muted-text)', borderRadius: 2, opacity: 0.5 }} />
         </div>
-      </aside>
+        </aside>
+      )}
 
       <main className="chat-card">
         <header className="chat-header">
-          <div>
-            <h2 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {leftSidebarCollapsed && (
+              <button 
+                className="icon-btn" 
+                onClick={() => setLeftSidebarCollapsed(false)} 
+                title="Open sidebar"
+              >
+                <PanelLeft size={20} />
+              </button>
+            )}
+            <h2 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
               {fullScreenAnalytics ? 'Enterprise Analytics Dashboard' : 'Query Knowledge Base'}
               {!fullScreenAnalytics && activeDomainFilter && <span className="meta-badge domain-badge">Scoped to: {domains.find(d => d.id === activeDomainFilter)?.name}</span>}
             </h2>
           </div>
           <div className="header-actions">
-            <div className="search-mode-toggle" style={{ display: 'flex', background: 'rgba(0,0,0,0.2)', borderRadius: 8, padding: 4, marginRight: 8 }}>
-              <button 
-                className={`mode-btn ${!webSearchEnabled ? 'active' : ''}`}
-                onClick={() => setWebSearchEnabled(false)}
-                style={{ padding: '6px 12px', borderRadius: 6, fontSize: '0.8rem', border: 'none', background: !webSearchEnabled ? 'var(--primary-color)' : 'transparent', color: !webSearchEnabled ? '#fff' : 'var(--muted-text)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, transition: 'all 0.2s' }}
-              >
-                <Database size={14} /> Internal Docs
-              </button>
-              <button 
-                className={`mode-btn ${webSearchEnabled ? 'active' : ''}`}
-                onClick={() => setWebSearchEnabled(true)}
-                style={{ padding: '6px 12px', borderRadius: 6, fontSize: '0.8rem', border: 'none', background: webSearchEnabled ? 'var(--primary-color)' : 'transparent', color: webSearchEnabled ? '#fff' : 'var(--muted-text)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600, transition: 'all 0.2s' }}
-              >
-                <Globe size={14} /> Web Search
-              </button>
-            </div>
-            <button className="secondary-button" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowKnowledgeGraph(!showKnowledgeGraph)} title="Knowledge Graph View">
+            <button className="secondary-button" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => {
+              setShowKnowledgeGraph(!showKnowledgeGraph);
+            }} title="Knowledge Graph View">
               <Network size={18} strokeWidth={2} color={showKnowledgeGraph ? 'var(--accent-color)' : 'var(--text-color)'} />
-            </button>
-            <button className="secondary-button" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={handleExportChat} title="Export Chat">
-              <Download size={18} strokeWidth={2} color="var(--text-color)" />
-            </button>
-            <button className="secondary-button" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={handleClearChat} title="Clear Chat">
-              <Trash2 size={18} strokeWidth={2} color="var(--text-color)" />
             </button>
             <button 
               className={`secondary-button ${incognitoMode ? 'active' : ''}`} 
@@ -963,6 +1261,12 @@ export default function App() {
                 const newState = !incognitoMode;
                 setIncognitoMode(newState);
                 showToast(newState ? "Ghost Mode Active: No history will be saved & Uploads disabled." : "Ghost Mode Off: Normal operation resumed.", newState ? "warning" : "success");
+                logAuditEvent(
+                  newState ? 'ghost_mode_on' : 'ghost_mode_off',
+                  session?.user?.id,
+                  userRole,
+                  { domain: activeDomainFilter || userRole, toggled_at: new Date().toISOString() }
+                );
               }} 
               title="Incognito Mode (Do not save history)"
             >
@@ -1006,7 +1310,32 @@ export default function App() {
           <>
             {pipelineStep >= 0 && <PipelineBar activeStep={pipelineStep} />}
 
-            <section className="chat-stream">
+            <section 
+              className="chat-stream"
+              onClick={(e) => {
+                if (e.target.closest('button, a, summary, select, input, .feedback-row, .citation-panel')) return;
+                
+                if (e.target.tagName === 'IMG') {
+                  setZoomedMedia({ type: 'img', src: e.target.src, alt: e.target.alt || 'Zoomed Image' });
+                  return;
+                }
+
+                const container = e.target.closest('.mermaid-container, .visual-diagram-container');
+                if (container) {
+                  const svg = container.querySelector('svg');
+                  if (svg) {
+                    setZoomedMedia({ type: 'svg', html: svg.outerHTML });
+                    return;
+                  }
+                }
+
+                const svgElem = e.target.closest('svg');
+                if (svgElem) {
+                  setZoomedMedia({ type: 'svg', html: svgElem.outerHTML });
+                  return;
+                }
+              }}
+            >
           {messages.length === 0 ? (
             incognitoMode ? (
               <div className="empty-state ghost-empty-state">
@@ -1036,6 +1365,18 @@ export default function App() {
                     <strong>{message.role === 'user' ? 'You' : 'DocPilot AI'}</strong>
                     {message.intent && <span className="meta-badge">Intent: {message.intent}</span>}
                     {message.cached && <span className="meta-badge cached">Ã¢Å¡Â¡ Cached Answer</span>}
+                    {message.role === 'assistant' && message.text && !isStreaming && (
+                      <button 
+                        className="margin-branch-trigger" 
+                        onClick={() => {
+                          setActiveBranchingMsgId(activeBranchingMsgId === message.id ? null : message.id);
+                          setBranchInputText('');
+                        }}
+                        title="Branch side thread"
+                      >
+                        🔀 Branch
+                      </button>
+                    )}
                   </div>
                   {message.role === 'assistant' && typeof message.confidence === 'number' && (
                     <ConfidenceGauge value={message.confidence} size={36} />
@@ -1099,6 +1440,38 @@ export default function App() {
                   </details>
                 )}
 
+                {activeBranchingMsgId === message.id && (
+                  <div style={{ marginTop: 12, padding: 14, background: 'rgba(139,92,246,0.12)', border: '1px solid #8b5cf6', borderRadius: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input 
+                      type="text" 
+                      placeholder="Ask side doubts " 
+                      value={branchInputText} 
+                      onChange={e => setBranchInputText(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleCreateBranch(message.id, branchInputText); }}
+                      style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border-color)', background: 'var(--bg-color)', color: 'var(--text-color)', fontSize: '0.9rem' }} 
+                      autoFocus
+                    />
+                    <button onClick={() => handleCreateBranch(message.id, branchInputText)} style={{ padding: '8px 16px', background: '#8b5cf6', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                      Branch ⚡
+                    </button>
+                    <button onClick={() => setActiveBranchingMsgId(null)} style={{ padding: '8px', background: 'transparent', color: 'var(--muted-text)', border: 'none', cursor: 'pointer' }}>
+                      <X size={18} />
+                    </button>
+                  </div>
+                )}
+
+                {/* Branch Jump Indicator */}
+                {chatSessions.filter(b => _getPid(b, chatSessions) === sessionId && (b.branch_point_message_id === message.id || !b.branch_point_message_id)).map(branch => (
+                  <div 
+                    key={branch.id}
+                    onClick={() => { setSessionId(branch.id); fetchHistory(branch.id); }}
+                    style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(139,92,246,0.15)', border: '1px dashed #8b5cf6', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', transition: 'all 0.2s' }}
+                  >
+                    <span style={{ fontSize: '0.85rem', color: '#ddd', fontWeight: 600 }}>🔀 Branched Thread: "{branch.title}"</span>
+                    <span style={{ fontSize: '0.75rem', color: '#a78bfa' }}>Jump to branch →</span>
+                  </div>
+                ))}
+
                 {message.role === 'assistant' && message.text && !isStreaming && (
                   <div className="feedback-row">
                     <button className={`feedback-button ${feedbackState[message.id] === 'helpful' ? 'active' : ''}`} onClick={() => {}}>
@@ -1106,6 +1479,36 @@ export default function App() {
                     </button>
                     <button className={`feedback-button ${feedbackState[message.id] === 'not-helpful' ? 'active' : ''}`} onClick={() => {}}>
                       <ThumbsDown size={14} /> Not helpful
+                    </button>
+                    <button 
+                      className="feedback-button"
+                      onClick={() => {
+                        setActiveBranchingMsgId(activeBranchingMsgId === message.id ? null : message.id);
+                        setBranchInputText('');
+                      }}
+                      title="Ask follow-up question in side branch without polluting thread"
+                      style={{ color: '#c4b5fd', borderColor: 'rgba(139,92,246,0.4)', background: activeBranchingMsgId === message.id ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.08)', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      🔀 Branch Thread
+                    </button>
+                    <button 
+                      className="feedback-button" 
+                      onClick={() => {
+                        const idx = messages.findIndex(m => m.id === message.id);
+                        if (idx === -1) return;
+                        const usrMsg = messages.slice(0, idx).reverse().find(m => m.role === 'user');
+                        if (!usrMsg?.text?.trim()) return;
+                        const capturedQuery = usrMsg.text;
+                        const capturedSessionId = sessionId;
+                        // First remove the old pair of messages
+                        setMessages(prev => prev.filter(m => m.id !== message.id && m.id !== usrMsg.id));
+                        // Send with skip_cache=true to guarantee a fresh, different response
+                        setTimeout(() => handleSend(capturedQuery, capturedSessionId, true), 50);
+                      }}
+                      title="Regenerate response"
+                      style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <RefreshCw size={14} /> Regenerate
                     </button>
                   </div>
                 )}
@@ -1121,7 +1524,7 @@ export default function App() {
               <h2 style={{ margin: 0 }}>Knowledge Graph Explorer</h2>
               <button className="icon-btn" onClick={() => setShowKnowledgeGraph(false)}><X size={20} /></button>
             </div>
-            <KnowledgeGraphViewer domain={activeDomainFilter || userRole} token={session?.access_token} />
+            <KnowledgeGraphViewer domain={activeDomainFilter || userRole} token={session?.access_token} refreshTrigger={documents} />
           </div>
         )}
 
@@ -1133,69 +1536,31 @@ export default function App() {
               </div>
             </div>
           )}
-          <div className="composer-box" style={{ flexDirection: 'column', gap: '10px', padding: '12px 16px', alignItems: 'stretch' }}>
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={e => setInputValue(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  if (!isStreaming && inputValue.trim()) handleSend();
-                }
-              }}
-              placeholder={userRole !== 'super_admin' ? `Ask a question strictly in ${domains.find(d => d.id === userRole)?.name || userRole}...` : activeDomainFilter ? `Search in ${domains.find(d => d.id === activeDomainFilter)?.name}...` : "Ask a grounded question across all domains..."}
-              disabled={isStreaming}
-              style={{ width: '100%', fontSize: '0.95rem', minHeight: '24px', maxHeight: '150px', resize: 'none', overflowY: 'auto', background: 'transparent', border: 'none', color: 'inherit', outline: 'none' }}
-              rows={1}
-            />
-            
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem', fontWeight: 500, color: webSearchEnabled ? '#3b82f6' : 'var(--muted-text)', cursor: 'pointer', transition: 'color 0.2s' }}>
-                  <div style={{
-                    width: 36, height: 20, borderRadius: 10, background: webSearchEnabled ? '#3b82f6' : 'var(--card-bg-strong)',
-                    position: 'relative', transition: 'background 0.3s', border: '1px solid var(--border-color)'
-                  }}>
-                    <div style={{
-                      width: 16, height: 16, borderRadius: '50%', background: '#fff', position: 'absolute', top: 2,
-                      left: webSearchEnabled ? 18 : 2, transition: 'left 0.3s'
-                    }} />
-                  </div>
-                  <input type="checkbox" checked={webSearchEnabled} onChange={e => setWebSearchEnabled(e.target.checked)} style={{ display: 'none' }} />
-                  <Globe size={14} /> Web Search
-                </label>
-                
-                <div style={{ position: 'relative' }}>
-                  <button className="icon-btn" style={{ padding: 6, color: attachedImage ? 'var(--accent-color)' : 'var(--muted-text)' }} onClick={() => imageInputRef.current?.click()} disabled={isStreaming} title="Attach Image for Vision AI">
-                    <Paperclip size={18} />
-                  </button>
-                  <input type="file" ref={imageInputRef} accept="image/*" hidden onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      const reader = new FileReader();
-                      reader.onloadend = () => setAttachedImage(reader.result);
-                      reader.readAsDataURL(file);
-                    }
-                  }} />
-                  {attachedImage && (
-                    <div style={{ position: 'absolute', bottom: '100%', left: 0, marginBottom: 8, background: 'var(--panel-bg)', padding: 4, borderRadius: 8, border: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>
-                      <img src={attachedImage} alt="preview" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} />
-                      <button className="icon-btn" onClick={() => setAttachedImage(null)} style={{ padding: 2 }}><X size={14}/></button>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {isStreaming ? (
-                <button className="primary-button" onClick={handleStopGeneration} style={{ padding: '8px 16px', borderRadius: 10, background: 'var(--warning-color)', color: '#fff', boxShadow: 'none' }}>
-                  <Square size={14} fill="currentColor" /> Stop
-                </button>
-              ) : (
-                <button className="primary-button" onClick={handleSend} disabled={!inputValue.trim() && !attachedImage} style={{ padding: '8px 16px', borderRadius: 10 }}>
-                  <Send size={14} /> Send
-                </button>
-              )}
+          <div 
+            className="composer-box" 
+            style={{ 
+              position: 'relative', 
+              padding: isMultiLinePrompt ? '12px 16px 46px 16px' : '10px 16px',
+              display: 'flex', 
+              flexDirection: 'column', 
+              justifyContent: 'center',
+              minHeight: '52px',
+              transition: 'padding 0.15s'
+            }}
+          >
+            <div style={{ 
+              paddingLeft: isMultiLinePrompt ? '0px' : (webSearchEnabled ? '92px' : '40px'),
+              paddingRight: isMultiLinePrompt ? '0px' : '85px',
+              width: '100%',
+              transition: 'padding 0.15s'
+            }}>
+              {renderTextarea()}
+            </div>
+            <div style={{ position: 'absolute', left: '16px', bottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {renderLeftControls()}
+            </div>
+            <div style={{ position: 'absolute', right: '16px', bottom: '10px' }}>
+              {renderRightControls()}
             </div>
           </div>
         </footer>
@@ -1391,11 +1756,202 @@ export default function App() {
         </div>
       )}
 
+      {/* Interactive Media Zoom & Pan Modal */}
+      {zoomedMedia && (
+        <MediaLightboxModal media={zoomedMedia} onClose={() => setZoomedMedia(null)} />
+      )}
+
+      {/* Enterprise Tree View Modal */}
+      {treeModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}>
+          <div className="modal-content" style={{ background: 'var(--panel-bg)', border: '1px solid var(--border-color)', borderRadius: 20, padding: 28, width: '90%', maxWidth: 750, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, borderBottom: '1px solid var(--border-color)', paddingBottom: 16 }}>
+              <h2 style={{ fontSize: '1.3rem', margin: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Network size={22} color="var(--accent-color)" /> Enterprise RAG Conversation Hierarchy
+              </h2>
+              <button className="icon-btn" onClick={() => setTreeModalOpen(false)}><X size={20} /></button>
+            </div>
+            <p style={{ color: 'var(--muted-text)', fontSize: '0.9rem', marginTop: 0, marginBottom: 20 }}>
+              Visualizing thread lineage across main discussions and side-doubt branches. Click any node to switch context.
+            </p>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 4px' }}>
+              {(() => {
+                const rootNodes = chatSessions.filter(cs => !_getPid(cs, chatSessions));
+                const getChildNodes = (pid) => chatSessions.filter(cs => _getPid(cs, chatSessions) === pid);
+                const renderTreeNode = (node, depth = 0) => {
+                  const children = getChildNodes(node.id);
+                  const isCurrent = sessionId === node.id;
+                  return (
+                    <div key={node.id} style={{ marginLeft: depth * 24, marginTop: 10 }}>
+                      <div 
+                        onClick={() => { setSessionId(node.id); fetchHistory(node.id); setTreeModalOpen(false); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px',
+                          background: isCurrent ? 'linear-gradient(135deg, rgba(59,130,246,0.2), rgba(139,92,246,0.2))' : 'var(--card-bg)',
+                          border: isCurrent ? '2px solid #3b82f6' : '1px solid var(--border-color)',
+                          borderRadius: 12, cursor: 'pointer', transition: 'all 0.2s',
+                          boxShadow: isCurrent ? '0 0 15px rgba(59,130,246,0.3)' : 'none'
+                        }}
+                      >
+                        <div style={{ fontSize: '1.2rem' }}>{depth === 0 ? '💬' : '🔀'}</div>
+                        <div style={{ flex: 1, overflow: 'hidden' }}>
+                          <div style={{ fontWeight: isCurrent ? 700 : 600, color: isCurrent ? '#60a5fa' : 'var(--text-color)', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {node.title}
+                          </div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted-text)', display: 'flex', gap: 10, marginTop: 2 }}>
+                            <span>Created: {new Date(node.created_at).toLocaleDateString()}</span>
+                            {depth > 0 && <span>• Branch Depth: {depth}</span>}
+                          </div>
+                        </div>
+                        {isCurrent && <span style={{ fontSize: '0.75rem', background: '#3b82f6', color: '#fff', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>ACTIVE</span>}
+                      </div>
+                      {children.length > 0 && (
+                        <div style={{ borderLeft: '2px dashed var(--border-color)', marginLeft: 20, paddingLeft: 4 }}>
+                          {children.map(c => renderTreeNode(c, depth + 1))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                };
+                return rootNodes.length ? rootNodes.map(rn => renderTreeNode(rn, 0)) : <div style={{ color: 'var(--muted-text)' }}>No sessions found.</div>;
+              })()}
+            </div>
+            <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-color)', paddingTop: 16 }}>
+              <button className="primary-button" onClick={() => setTreeModalOpen(false)} style={{ padding: '8px 24px', borderRadius: 8 }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toasts */}
     </div>
   );
 }
 
+function MediaLightboxModal({ media, onClose }) {
+  const DEFAULT_SCALE = 3.5;
+  const [scale, setScale] = useState(DEFAULT_SCALE);
+  const [fitScale, setFitScale] = useState(DEFAULT_SCALE);
+  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0 });
+  const contentRef = useRef(null);
 
+  // After first render, measure the content and compute the ideal initial scale
+  useEffect(() => {
+    const el = contentRef.current;
+    if (!el) return;
 
+    const timer = setTimeout(() => {
+      // Get the natural size of the rendered SVG or image inside the container
+      const svgEl = el.querySelector('svg') || el.querySelector('img');
+      let naturalW = 0, naturalH = 0;
 
+      if (svgEl?.tagName === 'svg') {
+        const vb = svgEl.viewBox?.baseVal;
+        naturalW = vb?.width || svgEl.getBoundingClientRect().width;
+        naturalH = vb?.height || svgEl.getBoundingClientRect().height;
+      } else if (svgEl?.tagName === 'IMG') {
+        naturalW = svgEl.naturalWidth || svgEl.width;
+        naturalH = svgEl.naturalHeight || svgEl.height;
+      } else {
+        // Fallback: measure the container itself
+        const rect = el.getBoundingClientRect();
+        naturalW = rect.width;
+        naturalH = rect.height;
+      }
+
+      if (!naturalW || !naturalH) return;
+
+      const isVertical = naturalH > naturalW;
+
+      if (isVertical) {
+        // Fit to viewport: compute scale so height fills ~88% of the screen
+        const viewportH = window.innerHeight * 0.88;
+        const viewportW = window.innerWidth * 0.92;
+        const scaleByH = viewportH / naturalH;
+        const scaleByW = viewportW / naturalW;
+        const computed = Math.min(scaleByH, scaleByW);
+        const clamped = Math.max(0.5, Math.min(computed, 50));
+        setScale(clamped);
+        setFitScale(clamped);
+      } else {
+        // Horizontal diagram: use default 3.5x
+        setScale(DEFAULT_SCALE);
+        setFitScale(DEFAULT_SCALE);
+      }
+    }, 80); // small delay so SVG renders before we measure
+
+    return () => clearTimeout(timer);
+  }, [media]);
+
+  const handleWheel = (e) => {
+    e.preventDefault();
+    setScale(prev => Math.min(Math.max(0.1, prev - e.deltaY * 0.003), 50));
+  };
+
+  const handleMouseDown = (e) => {
+    setIsDragging(true);
+    dragStart.current = { x: e.clientX - position.x, y: e.clientY - position.y };
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging) return;
+    setPosition({ x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y });
+  };
+
+  const handleMouseUp = () => setIsDragging(false);
+
+  return (
+    <div 
+      style={{ position: 'fixed', inset: 0, zIndex: 99999, background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', userSelect: 'none' }}
+      onWheel={handleWheel}
+      onMouseMove={handleMouseMove}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseUp}
+    >
+      <div style={{ position: 'absolute', top: 24, right: 24, display: 'flex', gap: 12, zIndex: 100000 }}>
+        <div style={{ display: 'flex', background: 'rgba(255,255,255,0.1)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+          <button onClick={() => setScale(s => Math.min(50, s + 0.6))} style={{ padding: '8px 16px', background: 'transparent', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '1.2rem' }}>+</button>
+          <button onClick={() => { setScale(fitScale); setPosition({ x: 0, y: 0 }); }} style={{ padding: '8px 14px', background: 'transparent', color: '#ddd', border: 'none', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600, borderLeft: '1px solid rgba(255,255,255,0.1)', borderRight: '1px solid rgba(255,255,255,0.1)' }}>Reset</button>
+          <button onClick={() => setScale(s => Math.max(0.1, s - 0.6))} style={{ padding: '8px 16px', background: 'transparent', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 700, fontSize: '1.2rem' }}>-</button>
+        </div>
+        <button onClick={onClose} style={{ padding: '8px 12px', background: 'rgba(239,68,68,0.85)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 12px rgba(0,0,0,0.3)' }}>
+          <X size={20} />
+        </button>
+      </div>
+
+      <div 
+        style={{ cursor: isDragging ? 'grabbing' : 'grab', transform: `translate(${position.x}px, ${position.y}px) scale(${scale})`, transition: isDragging ? 'none' : 'transform 0.15s ease-out', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' }}
+        onMouseDown={handleMouseDown}
+      >
+        {media?.type === 'svg' ? (
+          <div 
+            ref={contentRef}
+            style={{ 
+              background: 'var(--card-bg-strong)', 
+              padding: 32, 
+              borderRadius: 16, 
+              border: '1px solid var(--border-color)', 
+              boxShadow: '0 25px 50px -12px rgba(0,0,0,0.7)', 
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              justifyContent: 'center', 
+              pointerEvents: 'none',
+              // No maxWidth/maxHeight — background must cover the full SVG regardless of size
+              overflow: 'visible'
+            }}
+            dangerouslySetInnerHTML={{ __html: media.html }}
+          />
+        ) : (
+          <img 
+            ref={contentRef}
+            src={media?.src || media} 
+            alt={media?.alt || 'Zoomed View'} 
+            style={{ objectFit: 'contain', borderRadius: 12, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.7)', pointerEvents: 'none', display: 'block' }} 
+          />
+        )}
+      </div>
+    </div>
+  );
+}

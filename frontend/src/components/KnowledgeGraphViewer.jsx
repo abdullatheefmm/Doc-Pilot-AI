@@ -1,14 +1,15 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { Network, ZoomIn, ZoomOut, RefreshCw, Hexagon, Search, TrendingUp } from 'lucide-react';
+import { Network, ZoomIn, ZoomOut, RefreshCw, Hexagon, Search, TrendingUp, Maximize2, Minimize2 } from 'lucide-react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { Sankey, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
 
-export default function KnowledgeGraphViewer({ domain, token }) {
+export default function KnowledgeGraphViewer({ domain, token, refreshTrigger }) {
   const [graphData, setGraphData] = useState({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState('neon'); // 'neon' or 'sankey'
-  const [graphScope, setGraphScope] = useState('domain'); // 'domain' or 'me'
+  const [viewMode, setViewMode] = useState('neon');
+  const [graphScope, setGraphScope] = useState('domain');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isFullScreen, setIsFullScreen] = useState(false);
   const fgRef = useRef();
 
   const fetchGraph = async () => {
@@ -35,7 +36,7 @@ export default function KnowledgeGraphViewer({ domain, token }) {
 
   useEffect(() => {
     fetchGraph();
-  }, [domain, token, graphScope]);
+  }, [domain, token, graphScope, refreshTrigger]);
 
   useEffect(() => {
     if (fgRef.current && !loading) {
@@ -239,13 +240,15 @@ export default function KnowledgeGraphViewer({ domain, token }) {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+    <div style={isFullScreen ? {
+      position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', zIndex: 99999, background: 'var(--bg-color)', padding: 24, boxSizing: 'border-box', display: 'flex', flexDirection: 'column'
+    } : { display: 'flex', flexDirection: 'column', height: '100%', width: '100%' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Network size={20} color="var(--accent-color)" />
           <h2 style={{ fontSize: '1.2rem', fontWeight: 600, margin: 0 }}>Interactive Knowledge Graph</h2>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           
           {/* Search Bar */}
           <div style={{ display: 'flex', alignItems: 'center', background: 'var(--card-bg)', borderRadius: 20, padding: '4px 12px', border: '1px solid var(--border-color)' }}>
@@ -308,8 +311,9 @@ export default function KnowledgeGraphViewer({ domain, token }) {
           </div>
 
           <button className="secondary-button" onClick={fetchGraph} title="Refresh Graph"><RefreshCw size={16} /></button>
-          <button className="secondary-button" onClick={handleZoomIn} title="Zoom In"><ZoomIn size={16} /></button>
-          <button className="secondary-button" onClick={handleZoomOut} title="Zoom Out"><ZoomOut size={16} /></button>
+          <button className="secondary-button" onClick={() => setIsFullScreen(!isFullScreen)} title={isFullScreen ? "Exit Full Screen" : "Full Screen"}>
+            {isFullScreen ? <Minimize2 size={16} color="var(--accent-color)" /> : <Maximize2 size={16} />}
+          </button>
         </div>
       </div>
       
@@ -368,9 +372,10 @@ export default function KnowledgeGraphViewer({ domain, token }) {
             )}
           </div>
         ) : (
-          <ForceGraph2D
-            ref={fgRef}
-            graphData={graphData}
+          graphData?.nodes?.length > 0 ? (
+            <ForceGraph2D
+              ref={fgRef}
+              graphData={graphData}
             nodeCanvasObject={drawNeonNode}
             
             // Edge styling
@@ -403,6 +408,11 @@ export default function KnowledgeGraphViewer({ domain, token }) {
               }
             }}
           />
+          ) : (
+            <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--muted-text)' }}>
+              No knowledge graph data available for your domain.
+            </div>
+          )
         )}
 
         {/* Legend Overlay for Neon Mode */}

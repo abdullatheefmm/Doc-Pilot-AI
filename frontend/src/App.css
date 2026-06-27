@@ -2,8 +2,8 @@
   height: 100vh;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 20px;
-  padding: 20px;
+  gap: 12px;
+  padding: 12px;
   overflow: hidden
 }
 
@@ -151,7 +151,7 @@
 .upload-panel {
   border: 1px dashed var(--border-color);
   border-radius: 18px;
-  padding: 16px;
+  padding: 15px;
   text-align: center;
   display: flex;
   flex-direction: column;
@@ -159,7 +159,7 @@
   gap: 10px;
   background: var(--card-bg);
   transition: all .2s;
-  margin: 0 20px 20px;
+  margin: 0 15px 15px;
   flex-shrink: 0
 }
 
@@ -617,8 +617,8 @@
 }
 
 .composer {
-  padding: 15px 15px 15px;
-  border-top: 1px solid var(--border-color);
+  padding: 1px 50px 20px;
+  /* border-top: 1px solid var(--border-color); */
   background: var(--panel-bg);
   position: sticky;
   bottom: 0;
@@ -640,7 +640,7 @@
   display: flex;
   align-items: center;
   padding: 10px 14px;
-  border-radius: 16px;
+  border-radius: 15px;
   border: 1px solid var(--border-color);
   background: var(--card-bg);
   transition: border-color .2s
@@ -1406,9 +1406,23 @@
 
 /* Ghost Mode Empty State Animation */
 @keyframes ghostFloat {
-  0% { transform: translateY(0px) scale(1); opacity: 0.8; filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4)); }
-  50% { transform: translateY(-15px) scale(1.05); opacity: 1; filter: drop-shadow(0 0 16px rgba(139, 92, 246, 0.6)); }
-  100% { transform: translateY(0px) scale(1); opacity: 0.8; filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4)); }
+  0% {
+    transform: translateY(0px) scale(1);
+    opacity: 0.8;
+    filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4));
+  }
+
+  50% {
+    transform: translateY(-15px) scale(1.05);
+    opacity: 1;
+    filter: drop-shadow(0 0 16px rgba(139, 92, 246, 0.6));
+  }
+
+  100% {
+    transform: translateY(0px) scale(1);
+    opacity: 0.8;
+    filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4));
+  }
 }
 
 .ghost-float-animation {
@@ -1422,4 +1436,33 @@
 
 .sidebar-resizer:active {
   background: var(--accent-color) !important;
+}
+
+.margin-branch-trigger {
+  opacity: 0.85;
+  transition: opacity 0.2s, background 0.2s;
+  background: rgba(139, 92, 246, 0.15);
+  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.message-row:hover .margin-branch-trigger {
+  opacity: 1;
+}
+
+.margin-branch-trigger:hover {
+  background: #8b5cf6;
+  color: #fff;
+}
+
+.sidebar-branch-child {
+  position: relative;
+}
+
+.app-shell.sidebar-closed {
+  grid-template-columns: minmax(0, 1fr);
 }

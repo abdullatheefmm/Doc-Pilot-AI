@@ -6,10 +6,16 @@ import retrieval
 
 class SemanticCache:
     def __init__(self, threshold: float = 0.95, ttl_seconds: int = 3600):
-        # List of dicts: {"query": str, "embedding": np.ndarray, "timestamp": float, "value": Any, "mode": str, "domain": str, "user_role": str}
+        # List of dicts: {"query": str, "embedding": np.ndarray, "timestamp": float, "value": Any, "mode": str, "domain": str, "user_role": str, "model": str, "top_k": int}
         self._cache: list[dict[str, Any]] = []
         self.threshold = threshold
         self.ttl = ttl_seconds
+        self.hits = 0
+        self.misses = 0
+
+    def clear(self):
+        """Invalidate and clear all cached RAG responses."""
+        self._cache = []
         self.hits = 0
         self.misses = 0
 
@@ -20,10 +26,9 @@ class SemanticCache:
     def _cosine_similarity(self, a: np.ndarray, b: np.ndarray) -> float:
         return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b)))
 
-    def get(self, query: str, mode: str, domain: str, user_role: str) -> Any | None:
+    def get(self, query: str, mode: str, domain: str, user_role: str, model_name: str = "", top_k: int = 4) -> Any | None:
         self._cleanup()
         
-        # We need the model to embed the incoming query
         try:
             model = retrieval.get_model()
             query_emb = model.encode(query)
@@ -36,8 +41,10 @@ class SemanticCache:
         best_entry = None
 
         for entry in self._cache:
-            # Domain and Role must match exactly
-            if entry["mode"] != mode or entry["domain"] != domain or entry["user_role"] != user_role:
+            # Domain, Role, LLM Model, and Top K must match exactly
+            if (entry["mode"] != mode or entry["domain"] != domain or 
+                entry["user_role"] != user_role or entry.get("model", "") != model_name or 
+                entry.get("top_k", 4) != top_k):
                 continue
                 
             score = self._cosine_similarity(query_emb, entry["embedding"])
@@ -47,14 +54,13 @@ class SemanticCache:
 
         if best_entry and best_score >= self.threshold:
             self.hits += 1
-            # Refresh timestamp
             best_entry["timestamp"] = time.time()
             return best_entry["value"]
 
         self.misses += 1
         return None
 
-    def put(self, query: str, mode: str, domain: str, user_role: str, value: Any) -> None:
+    def put(self, query: str, mode: str, domain: str, user_role: str, model_name: str, top_k: int, value: Any) -> None:
         self._cleanup()
         try:
             model = retrieval.get_model()
@@ -68,7 +74,9 @@ class SemanticCache:
                 "value": value,
                 "mode": mode,
                 "domain": domain,
-                "user_role": user_role
+                "user_role": user_role,
+                "model": model_name,
+                "top_k": top_k
             })
         except Exception as e:
             print(f"Failed to cache: {e}")

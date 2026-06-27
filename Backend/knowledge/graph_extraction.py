@@ -90,12 +90,17 @@ def remove_document_from_graph(filename: str):
     Called upon document deletion. Removes document and its concepts from the dynamic graph store.
     """
     graph_data = get_graph_data()
-    if filename in graph_data:
-        del graph_data[filename]
+    stem = Path(filename).stem
+    removed = False
+    for k in list(graph_data.keys()):
+        if k == filename or Path(k).stem == stem:
+            del graph_data[k]
+            removed = True
+            print(f"Knowledge Graph Updated: Removed {k}")
+    if removed:
         save_graph_data(graph_data)
-        print(f"Knowledge Graph Updated: Removed {filename}")
 
-def get_dynamic_graph_for_user(user_domain: str, is_super_admin: bool, user_email: str = "", view_type: str = ""):
+def get_dynamic_graph_for_user(user_domain: str, is_super_admin: bool, user_email: str = "", view_type: str = "", user_full_name: str = ""):
     """
     Constructs the nodes and links for the Knowledge Graph frontend.
     Applies RBAC (Role-Based Access Control) to filter domains.
@@ -142,8 +147,10 @@ def get_dynamic_graph_for_user(user_domain: str, is_super_admin: bool, user_emai
             continue # Skip documents outside user's permitted domain
             
         # View Filtering!
-        if view_type == "me" and doc_uploaded_by != user_email:
-            continue
+        if view_type == "me":
+            allowed_names = [user_email, user_full_name, format_user_name(user_email), format_user_name(user_full_name)]
+            if doc_uploaded_by not in allowed_names:
+                continue
             
         # Add Domain Node
         add_node(doc_domain, 1, "domain")

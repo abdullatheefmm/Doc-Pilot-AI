@@ -74,6 +74,14 @@ class QueryRequest(BaseModel):
     model: str | None = None
     incognito: bool = False
     search_mode: str = "internal"
+    skip_cache: bool = False
+
+
+class LogEventRequest(BaseModel):
+    action_type: str
+    user_id: str | None = None
+    domain: str | None = None
+    details: dict | None = None
 
 
 class SourceItem(BaseModel):
@@ -305,6 +313,7 @@ def ask_question(request: QueryRequest):
             user_role=request.user_role,
             model=request.model,
             search_mode=request.search_mode,
+            skip_cache=request.skip_cache,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -324,7 +333,7 @@ def ask_question_stream(request: QueryRequest):
             citations = next(web_generator)
             
             meta = {
-                "type": "meta",
+                "type": "metadata",
                 "confidence": 0.8,
                 "intent": "web_search",
                 "sources": [{"document": c, "text": "Web Result"} for c in citations],
@@ -349,9 +358,77 @@ def ask_question_stream(request: QueryRequest):
                 rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
                 rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
                 
+            try:
+                analytics.log_query(
+                    query=request.query.strip(),
+                    answer=answer_text,
+                    confidence=0.8,
+                    response_time_ms=round(generate_ms, 1),
+                    sources=citations,
+                    domain="web",
+                    intent="web_search",
+                    cached=False,
+                    session_id=session_id,
+                    user_id=request.user_id,
+                    incognito=request.incognito,
+                )
+            except Exception:
+                pass
+
             done = {"type": "done", "generate_ms": round(generate_ms, 1)}
             yield f"data: {json.dumps(done)}\n\n"
         return StreamingResponse(web_stream(), media_type="text/event-stream")
+
+    # Check Semantic Cache first
+    from semantic_cache import semantic_answer_cache
+    cached_resp = None
+    if not request.skip_cache:
+        cached_resp = semantic_answer_cache.get(
+            query=request.query.strip(),
+            mode=request.retrieval_mode,
+            domain=request.domain or "all",
+            user_role=request.user_role,
+            model_name=request.model or "",
+            top_k=request.top_k
+        )
+    if cached_resp is not None:
+        def cache_stream():
+            meta = {
+                "type": "metadata",
+                "confidence": cached_resp.get("confidence", 0.95),
+                "intent": cached_resp.get("intent", "explain"),
+                "sources": cached_resp.get("sources", []),
+                "retrieval_scores": cached_resp.get("retrieval_scores", []),
+                "rewritten_query": request.query.strip(),
+                "session_id": session_id,
+                "retrieve_ms": 0,
+                "domain": request.domain or "all",
+            }
+            yield f"data: {json.dumps(meta)}\n\n"
+            ans = cached_resp.get("answer", "")
+            yield f"data: {json.dumps({'type': 'token', 'content': ans})}\n\n"
+            if not request.incognito:
+                rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
+                rag_qa.append_to_history(session_id, "assistant", ans, user_id=request.user_id)
+            done = {"type": "done", "generate_ms": 0}
+            yield f"data: {json.dumps(done)}\n\n"
+            try:
+                analytics.log_query(
+                    query=request.query.strip(),
+                    answer=ans,
+                    confidence=cached_resp.get("confidence", 0.95),
+                    response_time_ms=0,
+                    sources=[s["document"] for s in cached_resp.get("sources", []) if isinstance(s, dict) and "document" in s],
+                    domain=request.domain,
+                    intent=cached_resp.get("intent", "explain"),
+                    cached=True,
+                    session_id=session_id,
+                    user_id=request.user_id,
+                    incognito=request.incognito,
+                )
+            except Exception:
+                pass
+        return StreamingResponse(cache_stream(), media_type="text/event-stream")
 
     # Internal RAG Mode
     history_window = rag_qa.build_history_window(session_id)
@@ -374,7 +451,7 @@ def ask_question_stream(request: QueryRequest):
         full_answer = []
         # Send metadata first
         meta = {
-            "type": "meta",
+            "type": "metadata",
             "confidence": confidence,
             "intent": intent,
             "sources": sources,
@@ -388,7 +465,7 @@ def ask_question_stream(request: QueryRequest):
 
         t0 = _time.perf_counter()
         for token in rag_qa.generate_answer_stream(
-            request.query.strip(), rewritten_query, results, session_id
+            request.query.strip(), rewritten_query, results, session_id, model=request.model, skip_cache=request.skip_cache
         ):
             full_answer.append(token)
             yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
@@ -399,10 +476,31 @@ def ask_question_stream(request: QueryRequest):
             rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
             rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
 
+        # Cache the result
+        try:
+            cache_val = {
+                "answer": answer_text,
+                "sources": sources,
+                "confidence": confidence,
+                "intent": intent,
+                "retrieval_scores": retrieval_scores,
+            }
+            semantic_answer_cache.put(
+                query=request.query.strip(),
+                mode=request.retrieval_mode,
+                domain=request.domain or "all",
+                user_role=request.user_role,
+                model_name=request.model or "",
+                top_k=request.top_k,
+                value=cache_val
+            )
+        except Exception as ce:
+            print(f"Cache put error: {ce}")
+
         done = {"type": "done", "generate_ms": round(generate_ms, 1)}
         yield f"data: {json.dumps(done)}\n\n"
 
-        # Log analytics
+        # Log analytics (ghost mode queries go to audit_logs only, not user query_log)
         try:
             analytics.log_query(
                 query=request.query.strip(),
@@ -414,6 +512,8 @@ def ask_question_stream(request: QueryRequest):
                 intent=intent,
                 cached=False,
                 session_id=session_id,
+                user_id=request.user_id,
+                incognito=request.incognito,
             )
         except Exception:
             pass
@@ -457,6 +557,7 @@ async def upload_document(
         try:
             supabase.table("audit_logs").insert({
                 "action_type": "upload_document",
+                "user_id": user["id"],
                 "details": {"filename": normalized_path.name, "original_filename": file.filename, "domain": domain, "email": user["email"]}
             }).execute()
         except Exception as e:
@@ -482,6 +583,8 @@ async def upload_document(
 
     retrieval.refresh_index()
     answer_cache.invalidate_all()
+    from semantic_cache import semantic_answer_cache
+    semantic_answer_cache.clear()
 
     return {
         "filename": normalized_path.name,
@@ -516,22 +619,32 @@ async def get_documents():
                     except:
                         details = {}
                 filename = details.get("filename") if isinstance(details, dict) else None
+                orig_filename = details.get("original_filename") if isinstance(details, dict) else None
+                meta_obj = {
+                    "uploaded_by": details.get("email", log.get("user_id", "Unknown")),
+                    "uploaded_at": log.get("created_at")
+                }
                 if filename:
-                    # Overwrite so we keep the oldest or newest? newest is fine
-                    upload_metadata[filename] = {
-                        "uploaded_by": details.get("email", log.get("user_id", "Unknown")),
-                        "date": log.get("created_at", "Unknown").split("T")[0]
-                    }
+                    upload_metadata[filename] = meta_obj
+                if orig_filename:
+                    upload_metadata[orig_filename] = meta_obj
         except Exception as e:
             print(f"Failed to fetch upload metadata: {e}")
 
+    import datetime
     for doc in docs:
         doc_name = doc["name"]
         doc["domain"] = domains.get(doc_name, "general")
         doc["summary"] = summaries.get(doc_name, "")
         meta = upload_metadata.get(doc_name, {})
-        doc["uploaded_by"] = meta.get("uploaded_by", "Unknown")
-        doc["date"] = meta.get("date", "Unknown")
+        uploaded_at = meta.get("uploaded_at")
+        if not uploaded_at:
+            p = DATA_DIR / doc_name
+            if p.exists():
+                uploaded_at = datetime.datetime.fromtimestamp(p.stat().st_mtime, datetime.timezone.utc).isoformat()
+        doc["uploaded_by"] = meta.get("uploaded_by", "Admin / System")
+        doc["uploaded_at"] = uploaded_at
+        doc["date"] = uploaded_at or "Unknown"
         doc["access_count"] = access_counts.get(doc_name, 0)
         doc["trust_metrics"] = trust_metrics_map.get(doc_name, {"document_name": doc_name, "upvotes": 0, "downvotes": 0, "ai_score": 85})
         
@@ -551,10 +664,9 @@ async def vote_document(doc_name: str, payload: dict):
 def delete_document(filename: str, password: str = Query(..., min_length=1), user: dict = Depends(require_active_user)):
     verify_user_password(user["email"], password)
 
-    file_path = DATA_DIR / filename
-    if file_path.exists():
+    for f in DATA_DIR.glob(f"{Path(filename).stem}.*"):
         try:
-            file_path.unlink()
+            f.unlink()
         except Exception:
             pass
 
@@ -564,26 +676,43 @@ def delete_document(filename: str, password: str = Query(..., min_length=1), use
         except Exception:
             pass
 
-    # Manually delete vectors from Supabase
-    retrieval.delete_document_from_index(filename)
-    knowledge_domains.delete_document_metadata(filename)
+    try:
+        retrieval.delete_document_from_index(filename)
+    except Exception as e:
+        print(f"Error deleting index vectors: {e}")
+
+    try:
+        knowledge_domains.delete_document_metadata(filename)
+    except Exception as e:
+        print(f"Error deleting metadata: {e}")
     
-    import graph_extraction
-    graph_extraction.remove_document_from_graph(filename)
+    try:
+        import graph_extraction
+        graph_extraction.remove_document_from_graph(filename)
+    except Exception as e:
+        print(f"Error removing from graph: {e}")
     
-    retrieval.refresh_index()
-    answer_cache.invalidate_all()
+    try:
+        retrieval.refresh_index()
+    except Exception:
+        pass
+
+    try:
+        answer_cache.invalidate_all()
+        from semantic_cache import semantic_answer_cache
+        semantic_answer_cache.clear()
+    except Exception:
+        pass
     
     if supabase:
         try:
             supabase.table("audit_logs").insert({
                 "action_type": "delete_document",
-                "user_id": user["email"],
-                "domain": "general",
-                "details": {"filename": filename}
+                "user_id": user["id"],
+                "details": {"filename": filename, "domain": user.get("role") or "general", "email": user.get("email")}
             }).execute()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Failed to log delete audit: {e}")
             
     return {"status": "deleted", "filename": filename}
 
@@ -616,6 +745,7 @@ def ingest_url(request: UrlIngestRequest):
         try:
             supabase.table("audit_logs").insert({
                 "action_type": "upload_document",
+                "user_id": request.user_id or "Unknown",
                 "details": {"filename": filename, "original_filename": request.url, "domain": request.domain or "general", "email": request.user_id or "Unknown"}
             }).execute()
         except Exception as e:
@@ -668,7 +798,43 @@ def assign_domain(doc_name: str, domain: str = Query(..., min_length=1)):
     return {"status": "assigned", "document": doc_name, "domain": domain}
 
 
+# ─── Generic Audit Event Endpoint ──────────────────────────────────────────
+
+@app.post("/api/log-event")
+def log_event(request: LogEventRequest):
+    """
+    Called by the frontend to log user-driven events to the audit trail.
+    Examples: login, logout, ghost_mode_on, ghost_mode_off, knowledge_graph_view, document_view.
+    """
+    try:
+        analytics.log_audit_event(
+            action_type=request.action_type,
+            user_id=request.user_id,
+            domain=request.domain,
+            details=request.details,
+        )
+    except Exception as e:
+        print(f"[Audit] log-event error: {e}")
+    return {"status": "logged"}
+
+
 # ─── Chat History ───────────────────────────────────────────────────
+
+class BranchCreateRequest(BaseModel):
+    parent_session_id: str
+    message_id: str
+    title: str = "New Branch"
+    user_id: str | None = None
+
+@app.post("/api/history/branch")
+def create_chat_branch(req: BranchCreateRequest):
+    new_session_id = rag_qa.create_branch(
+        parent_session_id=req.parent_session_id,
+        branch_point_message_id=req.message_id,
+        user_id=req.user_id,
+        title=req.title
+    )
+    return {"session_id": new_session_id, "parent_session_id": req.parent_session_id, "branch_point_message_id": req.message_id}
 
 @app.get("/api/history/sessions")
 def get_sessions(user_id: str | None = None):
@@ -807,9 +973,10 @@ def get_knowledge_graph(domain: str = Query(None), view_type: str = Query(None),
     user_role = (user.get("role") or "general").lower()
     is_super_admin = user_role == "super_admin"
     user_email = user.get("email") or ""
+    user_full_name = user.get("full_name") or user_email
     
     target_domain = domain.lower() if domain else user_role
-    return graph_extraction.get_dynamic_graph_for_user(target_domain, is_super_admin, user_email, view_type)
+    return graph_extraction.get_dynamic_graph_for_user(target_domain, is_super_admin, user_email, view_type, user_full_name)
 
 @app.get("/api/admin/audit_logs")
 def get_audit_logs(user: dict = Depends(require_admin)):
@@ -849,11 +1016,13 @@ def resolve_auth_id(emp_id: str, is_admin_login: str = "false"):
         
     res = supabase.table("user_profiles").select("email, role").eq("employee_id", emp_id).execute()
     if not res.data:
-        raise HTTPException(status_code=404, detail="Not Found")
+        raise HTTPException(status_code=404, detail="Invalid credentials")
         
     user_data = res.data[0]
     if is_admin_login == "true" and user_data.get("role") != "super_admin":
-        raise HTTPException(status_code=403, detail="Not an admin")
+        raise HTTPException(status_code=403, detail="Invalid credentials")
+    if is_admin_login == "false" and user_data.get("role") == "super_admin":
+        raise HTTPException(status_code=403, detail="Invalid credentials")
         
     return {"email": user_data.get("email")}
 

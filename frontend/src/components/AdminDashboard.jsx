@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, Users, Shield, Database, Trash2, Download, Check, AlertTriangle, Play, Pause, FileText, CheckCircle, Search, RefreshCw } from 'lucide-react';
+import { Activity, Users, Shield, Database, Trash2, Download, Check, AlertTriangle, Play, Pause, FileText, CheckCircle, Search, RefreshCw, Network } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell } from 'recharts';
 import { supabase } from '../supabaseClient';
 import MLOpsDashboard from './MLOpsDashboard';
 
 import CustomDropdown from './CustomDropdown';
+import KnowledgeGraphViewer from './KnowledgeGraphViewer';
 
 export default function AdminDashboard({ session, showToast }) {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -28,6 +29,8 @@ export default function AdminDashboard({ session, showToast }) {
   const [logPurgeDays, setLogPurgeDays] = useState(30);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [docSearchQuery, setDocSearchQuery] = useState('');
+  const [logSearchQuery, setLogSearchQuery] = useState('');
   const [domainFilter, setDomainFilter] = useState('all');
 
   const API_URL = 'http://127.0.0.1:8000/api';
@@ -195,9 +198,25 @@ export default function AdminDashboard({ session, showToast }) {
   const domains = ['engineering', 'hr', 'finance', 'legal', 'product', 'general'];
 
   const filteredLogs = logs.filter(l => {
-    if (logActionType !== 'all' && l.action_type !== logActionType) return false;
+    if (l.action_type === 'knowledge_graph_view' || l.action_type === 'document_view') return false;
+    if (logActionType !== 'all') {
+      if (logActionType === 'login_logout' && l.action_type !== 'login' && l.action_type !== 'logout') return false;
+      else if (logActionType === 'ghost_mode' && l.action_type !== 'ghost_mode_on' && l.action_type !== 'ghost_mode_off') return false;
+      else if (logActionType !== 'login_logout' && logActionType !== 'ghost_mode' && l.action_type !== logActionType) return false;
+    }
     if (logStartDate && new Date(l.created_at) < new Date(logStartDate)) return false;
     if (logEndDate && new Date(l.created_at) > new Date(logEndDate)) return false;
+    
+    if (logSearchQuery) {
+      const q = logSearchQuery.toLowerCase();
+      const logUser = users.find(u => u.user_id === l.user_id || u.email === l.user_id);
+      const userName = logUser?.full_name?.toLowerCase() || '';
+      const userId = (logUser ? (logUser.employee_id || logUser.email || l.user_id) : (l.user_id || '')).toLowerCase();
+      const domain = (l.domain || l.details?.domain || logUser?.role || 'Global').toLowerCase();
+      const dateTime = new Date(l.created_at).toLocaleString().toLowerCase();
+      const action = l.action_type?.toLowerCase() || '';
+      return userName.includes(q) || userId.includes(q) || domain.includes(q) || dateTime.includes(q) || action.includes(q);
+    }
     return true;
   });
 
@@ -284,7 +303,16 @@ export default function AdminDashboard({ session, showToast }) {
         <button className="tab-btn" style={{ background: activeTab === 'logs' ? 'var(--card-bg)' : 'transparent', color: activeTab === 'logs' ? 'var(--text-color)' : 'var(--muted-text)' }} onClick={() => setActiveTab('logs')}>
           <FileText size={16} /> Audit Logs
         </button>
+        <button className="tab-btn" style={{ background: activeTab === 'graph' ? 'var(--card-bg)' : 'transparent', color: activeTab === 'graph' ? 'var(--text-color)' : 'var(--muted-text)' }} onClick={() => setActiveTab('graph')}>
+          <Network size={16} /> Knowledge Graph
+        </button>
       </div>
+
+      {activeTab === 'graph' && (
+        <div style={{ animation: 'fadeIn 0.3s ease', height: 'calc(100vh - 200px)' }}>
+          <KnowledgeGraphViewer domain="all" token={session?.access_token} refreshTrigger={documents} />
+        </div>
+      )}
 
       {activeTab === 'dashboard' && analytics && (
         <div style={{ animation: 'fadeIn 0.3s ease' }}>
@@ -509,6 +537,12 @@ export default function AdminDashboard({ session, showToast }) {
 
       {activeTab === 'documents' && (
         <div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <div style={{ display: 'flex', gap: 16, marginBottom: 20, alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '0 16px', flex: 1, maxWidth: 450, height: 36, boxSizing: 'border-box' }}>
+              <Search size={16} color="var(--muted-text)" style={{ marginRight: 10 }} />
+              <input type="text" placeholder="Search documents by name, domain, user, or date..." value={docSearchQuery} onChange={e => setDocSearchQuery(e.target.value)} style={{ background: 'transparent', border: 'none', color: '#fff', outline: 'none', width: '100%', fontSize: '0.85rem', height: '100%' }} />
+            </div>
+          </div>
           <div style={{ border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.02)', borderRadius: 16, padding: 24 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
               <thead>
@@ -516,32 +550,48 @@ export default function AdminDashboard({ session, showToast }) {
                   <th style={{ padding: '12px 8px' }}>Filename</th>
                   <th style={{ padding: '12px 8px' }}>Domain</th>
                   <th style={{ padding: '12px 8px' }}>Uploaded By</th>
-                  <th style={{ padding: '12px 8px' }}>Date</th>
+                  <th style={{ padding: '12px 8px' }}>Date & Time</th>
                   <th style={{ padding: '12px 8px' }}>Status</th>
                   <th style={{ padding: '12px 8px', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {documents.length === 0 ? (
-                  <tr><td colSpan="6" style={{ padding: '32px 8px', textAlign: 'center', color: 'var(--muted-text)' }}>No documents found.</td></tr>
-                ) : documents.map((doc, i) => (
-                  <tr key={doc.id || doc.name} className="admin-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', animation: `slideIn 0.2s ease ${i * 0.02}s forwards`, opacity: 0 }}>
-                    <td style={{ padding: '12px 8px', fontWeight: 600 }}>{doc.name}</td>
-                    <td style={{ padding: '12px 8px' }}>
-                      <span style={{ color: 'var(--primary-color)', background: 'rgba(59,130,246,0.1)', padding: '4px 10px', borderRadius: 8 }}>{doc.domain || 'Global'}</span>
-                    </td>
-                    <td style={{ padding: '12px 8px', color: 'var(--muted-text)' }}>{doc.uploaded_by || 'Unknown'}</td>
-                    <td style={{ padding: '12px 8px', color: 'var(--muted-text)' }}>{doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleString() : 'Unknown'}</td>
-                    <td style={{ padding: '12px 8px' }}>
-                      <span style={{ color: '#22c55e', display: 'flex', alignItems: 'center', gap: 6 }}><Check size={14}/> Indexed</span>
-                    </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right' }}>
-                      <button title="Force Delete Document & Vectors" className="action-icon delete-btn" onClick={() => forceDeleteDocument(doc.name)} disabled={loading}>
-                        <Trash2 size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {(() => {
+                  const filteredDocs = documents.filter(doc => {
+                    if (!docSearchQuery) return true;
+                    const q = docSearchQuery.toLowerCase();
+                    const name = doc.name?.toLowerCase() || '';
+                    const domain = (doc.domain || 'Global').toLowerCase();
+                    const docUser = users.find(u => u.user_id === doc.uploaded_by || u.email === doc.uploaded_by);
+                    const uploaderStr = (docUser ? `${docUser.full_name || ''} ${docUser.employee_id || ''} ${docUser.email || ''}` : (doc.uploaded_by || '')).toLowerCase();
+                    const dateStr = doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleString().toLowerCase() : (doc.date || '').toLowerCase();
+                    return name.includes(q) || domain.includes(q) || uploaderStr.includes(q) || dateStr.includes(q);
+                  });
+                  return filteredDocs.length === 0 ? (
+                    <tr><td colSpan="6" style={{ padding: '32px 8px', textAlign: 'center', color: 'var(--muted-text)' }}>No documents found.</td></tr>
+                  ) : filteredDocs.map((doc, i) => {
+                    const docUser = users.find(u => u.user_id === doc.uploaded_by || u.email === doc.uploaded_by);
+                    const displayUploader = docUser ? `${docUser.full_name || ''} (${docUser.employee_id || docUser.email})` : (doc.uploaded_by || 'Unknown');
+                    return (
+                    <tr key={doc.id || doc.name} className="admin-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', animation: `slideIn 0.2s ease ${i * 0.02}s forwards`, opacity: 0 }}>
+                      <td style={{ padding: '12px 8px', fontWeight: 600 }}>{doc.name}</td>
+                      <td style={{ padding: '12px 8px' }}>
+                        <span style={{ color: 'var(--primary-color)', background: 'rgba(59,130,246,0.1)', padding: '4px 10px', borderRadius: 8 }}>{doc.domain || 'Global'}</span>
+                      </td>
+                      <td style={{ padding: '12px 8px', color: 'var(--muted-text)' }}>{displayUploader}</td>
+                      <td style={{ padding: '12px 8px', color: 'var(--muted-text)' }}>{doc.uploaded_at ? new Date(doc.uploaded_at).toLocaleString() : (doc.date !== 'Unknown' ? doc.date : 'Unknown')}</td>
+                      <td style={{ padding: '12px 8px' }}>
+                        <span style={{ color: '#22c55e', display: 'flex', alignItems: 'center', gap: 6 }}><Check size={14}/> Indexed</span>
+                      </td>
+                      <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                        <button title="Force Delete Document & Vectors" className="action-icon delete-btn" onClick={() => forceDeleteDocument(doc.name)} disabled={loading}>
+                          <Trash2 size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                    );
+                  });
+                })()}
               </tbody>
             </table>
           </div>
@@ -607,12 +657,19 @@ export default function AdminDashboard({ session, showToast }) {
               options={[
                 { value: 'all', label: 'All Actions' },
                 { value: 'chat_query', label: 'Chat Queries' },
+                { value: 'ghost_query', label: 'Ghost Queries' },
                 { value: 'upload_document', label: 'Uploads' },
                 { value: 'delete_document', label: 'Deletions' },
-                { value: 'login', label: 'Logins' }
+                { value: 'login_logout', label: 'Logins / Logouts' },
+                { value: 'ghost_mode', label: 'Ghost Mode (On/Off)' },
               ]} 
               onChange={setLogActionType} 
             />
+
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '0 16px', flex: 1, minWidth: 260, height: 36, boxSizing: 'border-box' }}>
+              <Search size={16} color="var(--muted-text)" style={{ marginRight: 10 }} />
+              <input type="text" placeholder="Search logs by user, ID, domain, date/time..." value={logSearchQuery} onChange={e => setLogSearchQuery(e.target.value)} style={{ background: 'transparent', border: 'none', color: '#fff', outline: 'none', width: '100%', fontSize: '0.85rem', height: '100%' }} />
+            </div>
 
             <div style={{ flex: 1 }}></div>
 
@@ -630,27 +687,63 @@ export default function AdminDashboard({ session, showToast }) {
               <thead>
                 <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', textAlign: 'left', color: 'var(--muted-text)' }}>
                   <th style={{ padding: '12px 8px' }}>Time</th>
-                  <th style={{ padding: '12px 8px' }}>User ID</th>
+                  <th style={{ padding: '12px 8px' }}>User</th>
                   <th style={{ padding: '12px 8px' }}>Domain</th>
+                  <th style={{ padding: '12px 8px' }}>Action</th>
                   <th style={{ padding: '12px 8px' }}>Details</th>
                   <th style={{ padding: '12px 8px', textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredLogs.length === 0 ? (
-                  <tr><td colSpan="5" style={{ padding: '32px 8px', textAlign: 'center', color: 'var(--muted-text)' }}>No logs found for this filter.</td></tr>
+                  <tr><td colSpan="6" style={{ padding: '32px 8px', textAlign: 'center', color: 'var(--muted-text)' }}>No logs found for this filter.</td></tr>
                 ) : filteredLogs.map((l, i) => {
-                  const logUser = users.find(u => u.user_id === l.user_id);
-                  const displayId = logUser ? (logUser.employee_id || logUser.email || l.user_id?.slice(0,8) + '...') : (l.user_id?.slice(0,8) + '...');
-                  const logDomain = l.details?.domain || logUser?.role || 'Global';
+                  const logUser = users.find(u => u.user_id === l.user_id || u.email === l.user_id);
+                  const displayId = logUser ? (logUser.employee_id || logUser.email || l.user_id) : l.user_id;
+                  const displayUserCol = logUser ? `${logUser.full_name || ''} (${displayId})` : displayId;
+                  const logDomain = l.domain || l.details?.domain || logUser?.role || 'Global';
+
+                  // Action badge config
+                  const actionBadgeMap = {
+                    chat_query:           { label: 'Chat Query',        color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+                    ghost_query:          { label: 'Ghost Query',       color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+                    upload_document:      { label: 'Upload',            color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+                    delete_document:      { label: 'Deletion',          color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+                    login:                { label: 'Login',             color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+                    logout:               { label: 'Logout',            color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
+                    ghost_mode_on:        { label: 'Ghost Mode ON',     color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
+                    ghost_mode_off:       { label: 'Ghost Mode OFF',    color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+                    knowledge_graph_view: { label: 'Graph View',        color: '#00d2ff', bg: 'rgba(0,210,255,0.12)' },
+                    document_view:        { label: 'Document View',     color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+                  };
+                  const badge = actionBadgeMap[l.action_type] || { label: l.action_type, color: 'var(--muted-text)', bg: 'rgba(255,255,255,0.05)' };
+
+                  // Format details nicely
+                  let detailStr = '';
+                  if (l.details && typeof l.details === 'object') {
+                    const d = l.details;
+                    if (d.query) detailStr = `"${d.query.slice(0, 60)}${d.query.length > 60 ? '…' : ''}"`;
+                    else if (d.filename) detailStr = d.filename;
+                    else if (d.full_name) {
+                      detailStr = `${d.full_name} (${d.role || 'user'})`;
+                      if (d.status) detailStr += ` - Status: ${d.status.toUpperCase()}`;
+                    }
+                    else detailStr = JSON.stringify(d).slice(0, 80);
+                  } else {
+                    detailStr = l.resource_id || '—';
+                  }
+
                   return (
                   <tr key={l.id} className="admin-row" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', animation: `slideIn 0.2s ease ${i * 0.02}s forwards`, opacity: 0 }}>
-                    <td style={{ padding: '12px 8px' }}>{new Date(l.created_at).toLocaleString()}</td>
-                    <td style={{ padding: '12px 8px', color: 'var(--muted-text)', fontFamily: 'monospace' }}>{displayId}</td>
-                    <td style={{ padding: '12px 8px', fontWeight: 600, color: 'var(--primary-color)' }}>
-                       {logDomain}
+                    <td style={{ padding: '12px 8px', whiteSpace: 'nowrap' }}>{new Date(l.created_at).toLocaleString()}</td>
+                    <td style={{ padding: '12px 8px', color: 'var(--muted-text)', fontFamily: 'monospace', fontSize: '0.8rem' }}>{displayUserCol}</td>
+                    <td style={{ padding: '12px 8px', fontWeight: 600, color: 'var(--primary-color)' }}>{logDomain}</td>
+                    <td style={{ padding: '12px 8px' }}>
+                      <span style={{ color: badge.color, background: badge.bg, padding: '3px 8px', borderRadius: 6, fontSize: '0.78rem', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                        {badge.label}
+                      </span>
                     </td>
-                    <td style={{ padding: '12px 8px', color: 'var(--muted-text)' }}>{l.resource_id || JSON.stringify(l.details)}</td>
+                    <td style={{ padding: '12px 8px', color: 'var(--muted-text)', fontSize: '0.82rem', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detailStr}</td>
                     <td style={{ padding: '12px 8px', textAlign: 'right' }}>
                       <button title="Delete Log Entry" className="action-icon delete-btn" onClick={() => deleteAuditLog(l.id)}>
                         <Trash2 size={18} />

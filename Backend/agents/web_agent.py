@@ -1,7 +1,7 @@
 import re
 import requests
 from bs4 import BeautifulSoup
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from llm_client import get_llm_client, LLM_MODEL
 
 def extract_urls(text: str) -> list[str]:

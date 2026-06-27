@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from supabase_client import supabase
 
@@ -46,8 +47,9 @@ def get_all_document_domains() -> dict[str, str]:
 
 def delete_document_metadata(document_name: str) -> None:
     if supabase:
-        supabase.table("document_domains").delete().eq("document_name", document_name).execute()
-        supabase.table("document_summaries").delete().eq("document_name", document_name).execute()
+        stem = Path(document_name).stem
+        supabase.table("document_domains").delete().ilike("document_name", f"{stem}%").execute()
+        supabase.table("document_summaries").delete().ilike("document_name", f"{stem}%").execute()
 
 def save_document_summary(document_name: str, summary: str) -> None:
     if supabase:

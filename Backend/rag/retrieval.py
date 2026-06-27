@@ -77,7 +77,8 @@ def index_document(filename: str, text: str) -> None:
 
 def delete_document_from_index(filename: str) -> None:
     if not supabase: return
-    supabase.table("document_chunks").delete().eq("document_name", filename).execute()
+    stem = Path(filename).stem
+    supabase.table("document_chunks").delete().ilike("document_name", f"{stem}%").execute()
 
 
 def get_documents() -> list[dict[str, Any]]:
