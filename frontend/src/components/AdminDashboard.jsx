@@ -201,8 +201,7 @@ export default function AdminDashboard({ session, showToast }) {
     if (l.action_type === 'knowledge_graph_view' || l.action_type === 'document_view') return false;
     if (logActionType !== 'all') {
       if (logActionType === 'login_logout' && l.action_type !== 'login' && l.action_type !== 'logout') return false;
-      else if (logActionType === 'ghost_mode' && l.action_type !== 'ghost_mode_on' && l.action_type !== 'ghost_mode_off') return false;
-      else if (logActionType !== 'login_logout' && logActionType !== 'ghost_mode' && l.action_type !== logActionType) return false;
+      else if (logActionType !== 'login_logout' && l.action_type !== logActionType) return false;
     }
     if (logStartDate && new Date(l.created_at) < new Date(logStartDate)) return false;
     if (logEndDate && new Date(l.created_at) > new Date(logEndDate)) return false;
@@ -656,11 +655,9 @@ export default function AdminDashboard({ session, showToast }) {
               options={[
                 { value: 'all', label: 'All Actions' },
                 { value: 'chat_query', label: 'Chat Queries' },
-                { value: 'ghost_query', label: 'Ghost Queries' },
                 { value: 'upload_document', label: 'Uploads' },
                 { value: 'delete_document', label: 'Deletions' },
                 { value: 'login_logout', label: 'Logins / Logouts' },
-                { value: 'ghost_mode', label: 'Ghost Mode (On/Off)' },
               ]} 
               onChange={setLogActionType} 
             />
@@ -705,13 +702,10 @@ export default function AdminDashboard({ session, showToast }) {
                   // Action badge config
                   const actionBadgeMap = {
                     chat_query:           { label: 'Chat Query',        color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-                    ghost_query:          { label: 'Ghost Query',       color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
                     upload_document:      { label: 'Upload',            color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
                     delete_document:      { label: 'Deletion',          color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
                     login:                { label: 'Login',             color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
                     logout:               { label: 'Logout',            color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
-                    ghost_mode_on:        { label: 'Ghost Mode ON',     color: '#a855f7', bg: 'rgba(168,85,247,0.12)' },
-                    ghost_mode_off:       { label: 'Ghost Mode OFF',    color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
                     knowledge_graph_view: { label: 'Graph View',        color: '#00d2ff', bg: 'rgba(0,210,255,0.12)' },
                     document_view:        { label: 'Document View',     color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
                   };
@@ -721,7 +715,7 @@ export default function AdminDashboard({ session, showToast }) {
                   let detailStr = '';
                   if (l.details && typeof l.details === 'object') {
                     const d = l.details;
-                    if (d.query) detailStr = `"${d.query.slice(0, 60)}${d.query.length > 60 ? '…' : ''}"`;
+                    if (d.query) detailStr = `"${d.query}"`;
                     else if (d.filename) detailStr = d.filename;
                     else if (d.full_name) {
                       detailStr = `${d.full_name} (${d.role || 'user'})`;
@@ -742,7 +736,7 @@ export default function AdminDashboard({ session, showToast }) {
                         {badge.label}
                       </span>
                     </td>
-                    <td style={{ padding: '12px 8px', color: 'var(--muted-text)', fontSize: '0.82rem', maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{detailStr}</td>
+                    <td style={{ padding: '12px 8px', color: 'var(--muted-text)', fontSize: '0.82rem', maxWidth: 350, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={typeof l.details === 'object' && l.details?.query ? l.details.query : detailStr}>{detailStr}</td>
                     <td style={{ padding: '12px 8px', textAlign: 'right' }}>
                       <button title="Delete Log Entry" className="action-icon delete-btn" onClick={() => deleteAuditLog(l.id)}>
                         <Trash2 size={18} />

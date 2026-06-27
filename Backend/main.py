@@ -72,7 +72,6 @@ class QueryRequest(BaseModel):
     retrieval_mode: str = "hybrid"
     domain: str | None = None
     model: str | None = None
-    incognito: bool = False
     search_mode: str = "internal"
     skip_cache: bool = False
 
@@ -285,9 +284,8 @@ def ask_question(request: QueryRequest):
             web_generator = web_agent.stream_web_agent(request.query)
             citations = next(web_generator)
             answer_text = "".join(list(web_generator))
-            if not request.incognito:
-                rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
-                rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
+            rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
+            rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
             return {
                 "answer": answer_text,
                 "sources": [{"document": c, "text": "Web Result"} for c in citations],
@@ -354,9 +352,8 @@ def ask_question_stream(request: QueryRequest):
             generate_ms = (_time.perf_counter() - t0) * 1000
             
             answer_text = "".join(full_answer)
-            if not request.incognito:
-                rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
-                rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
+            rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
+            rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
                 
             try:
                 analytics.log_query(
@@ -370,7 +367,6 @@ def ask_question_stream(request: QueryRequest):
                     cached=False,
                     session_id=session_id,
                     user_id=request.user_id,
-                    incognito=request.incognito,
                 )
             except Exception:
                 pass
@@ -407,9 +403,8 @@ def ask_question_stream(request: QueryRequest):
             yield f"data: {json.dumps(meta)}\n\n"
             ans = cached_resp.get("answer", "")
             yield f"data: {json.dumps({'type': 'token', 'content': ans})}\n\n"
-            if not request.incognito:
-                rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
-                rag_qa.append_to_history(session_id, "assistant", ans, user_id=request.user_id)
+            rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
+            rag_qa.append_to_history(session_id, "assistant", ans, user_id=request.user_id)
             done = {"type": "done", "generate_ms": 0}
             yield f"data: {json.dumps(done)}\n\n"
             try:
@@ -424,7 +419,6 @@ def ask_question_stream(request: QueryRequest):
                     cached=True,
                     session_id=session_id,
                     user_id=request.user_id,
-                    incognito=request.incognito,
                 )
             except Exception:
                 pass
@@ -472,9 +466,8 @@ def ask_question_stream(request: QueryRequest):
         generate_ms = (_time.perf_counter() - t0) * 1000
 
         answer_text = "".join(full_answer)
-        if not request.incognito:
-            rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
-            rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
+        rag_qa.append_to_history(session_id, "user", request.query.strip(), user_id=request.user_id)
+        rag_qa.append_to_history(session_id, "assistant", answer_text, user_id=request.user_id)
 
         # Cache the result
         try:
@@ -500,7 +493,7 @@ def ask_question_stream(request: QueryRequest):
         done = {"type": "done", "generate_ms": round(generate_ms, 1)}
         yield f"data: {json.dumps(done)}\n\n"
 
-        # Log analytics (ghost mode queries go to audit_logs only, not user query_log)
+        # Log analytics
         try:
             analytics.log_query(
                 query=request.query.strip(),
@@ -513,7 +506,6 @@ def ask_question_stream(request: QueryRequest):
                 cached=False,
                 session_id=session_id,
                 user_id=request.user_id,
-                incognito=request.incognito,
             )
         except Exception:
             pass
@@ -804,7 +796,7 @@ def assign_domain(doc_name: str, domain: str = Query(..., min_length=1)):
 def log_event(request: LogEventRequest):
     """
     Called by the frontend to log user-driven events to the audit trail.
-    Examples: login, logout, ghost_mode_on, ghost_mode_off, knowledge_graph_view, document_view.
+    Examples: login, logout, knowledge_graph_view, document_view.
     """
     try:
         analytics.log_audit_event(

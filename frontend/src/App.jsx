@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './App.css';
-import { Bot, ChevronDown, ChevronRight, Database, Globe, Lock, Download, Moon, Send, Square, Sparkles, SunMedium, ThumbsDown, ThumbsUp, UploadCloud, User, Trash2, X, XCircle, AlertTriangle, Loader2, Ghost, Info, FileText, Paperclip, ImageIcon, Network, PanelLeftClose, PanelLeft, RefreshCw, Plus, MoreHorizontal, Copy } from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight, Database, Globe, Lock, Download, Moon, Send, Square, Sparkles, SunMedium, ThumbsDown, ThumbsUp, UploadCloud, User, Trash2, X, XCircle, AlertTriangle, Loader2, Info, FileText, Paperclip, ImageIcon, Network, PanelLeftClose, PanelLeft, RefreshCw, Plus, MoreHorizontal, Copy } from 'lucide-react';
 import AnalyticsPanel from './components/AnalyticsPanel';
 import KnowledgeBasePanel, { AllDocumentsModal } from './components/KnowledgeBasePanel';
 import { ConfidenceGauge, PipelineBar, QueryTimeline, RetrievalScoreBars, renderMarkdown, ArchitectureDiagram } from './components/Visuals';
@@ -77,7 +77,7 @@ export default function App() {
 
 
   const [sessionId, setSessionId] = useState('');
-  const [incognitoMode, setIncognitoMode] = useState(false);
+
   const [sidebarWidth, setSidebarWidth] = useState(300);
 
   const handleMouseDown = (e) => {
@@ -450,7 +450,7 @@ export default function App() {
           threshold: similarityThreshold, retrieval_mode: retrievalMode, domain: activeDomainFilter || null,
           search_mode: webSearchEnabled ? "web" : "internal", model: selectedModel,
           user_id: session?.user?.id || null, user_role: userRole || "general",
-          incognito: incognitoMode,
+          incognito: false,
           skip_cache: skipCache
         }),
       });
@@ -883,7 +883,7 @@ export default function App() {
   );
 
   return (
-    <div className={`app-shell ${incognitoMode ? 'ghost-theme' : ''} ${leftSidebarCollapsed ? 'sidebar-closed' : ''}`}>
+    <div className={`app-shell ${leftSidebarCollapsed ? 'sidebar-closed' : ''}`}>
       {/* Toasts */}
       <div className="toast-container">
         {toasts.map(t => (
@@ -1111,14 +1111,7 @@ export default function App() {
         </div>
 
         {activeTab === 'kb' && !fullScreenKB && (
-          <div className="upload-panel" style={incognitoMode ? { opacity: 0.5, pointerEvents: 'none', position: 'relative' } : {}}>
-            {incognitoMode && (
-              <div style={{ position: 'absolute', inset: 0, zIndex: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', borderRadius: 12, border: '1px solid var(--warning-color)' }}>
-                <div style={{ color: 'var(--warning-color)', fontSize: '0.9rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Ghost size={18} /> Uploads Disabled in Ghost Mode
-                </div>
-              </div>
-            )}
+          <div className="upload-panel">
             <div style={{ display: 'flex', gap: 10, width: '100%' }}>
               <button
                 className="secondary-button"
@@ -1255,24 +1248,7 @@ export default function App() {
             }} title="Knowledge Graph View">
               <Network size={18} strokeWidth={2} color={showKnowledgeGraph ? 'var(--accent-color)' : 'var(--text-color)'} />
             </button>
-            <button 
-              className={`secondary-button ${incognitoMode ? 'active' : ''}`} 
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: incognitoMode ? 'var(--accent-color)' : 'var(--text-color)' }}
-              onClick={() => {
-                const newState = !incognitoMode;
-                setIncognitoMode(newState);
-                showToast(newState ? "Ghost Mode Active: No history will be saved & Uploads disabled." : "Ghost Mode Off: Normal operation resumed.", newState ? "warning" : "success");
-                logAuditEvent(
-                  newState ? 'ghost_mode_on' : 'ghost_mode_off',
-                  session?.user?.id,
-                  userRole,
-                  { domain: activeDomainFilter || userRole, toggled_at: new Date().toISOString() }
-                );
-              }} 
-              title="Incognito Mode (Do not save history)"
-            >
-              <Ghost size={18} strokeWidth={2} color={incognitoMode ? 'var(--accent-color)' : 'var(--text-color)'} />
-            </button>
+
             <div className="status-badge" style={{ display: 'flex', alignItems: 'center', padding: '0', border: 'none', background: 'transparent' }}>
               <CustomDropdown
                 value={selectedModel}
@@ -1338,23 +1314,11 @@ export default function App() {
               }}
             >
           {messages.length === 0 ? (
-            incognitoMode ? (
-              <div className="empty-state ghost-empty-state">
-                <div className="ghost-icon-wrapper ghost-float-animation" style={{ display: 'inline-block' }}>
-                  <Ghost size={56} strokeWidth={1.5} />
-                </div>
-                <h3 style={{ marginTop: 24, marginBottom: 8, color: 'var(--primary-color)' }}>Ghost Mode Active</h3>
-                <p style={{ maxWidth: 400, margin: '0 auto', lineHeight: 1.5, color: 'var(--muted-text)' }}>
-                  You are completely off the grid.<br />Your chat history and uploads will not be saved.
-                </p>
-              </div>
-            ) : (
-              <div className="empty-state">
-                <Bot size={48} />
-                <h3>How can I help you today?</h3>
-                <p>Ask a question, and I'll search the enterprise knowledge base to provide a grounded, cited answer.</p>
-              </div>
-            )
+            <div className="empty-state">
+              <Bot size={48} />
+              <h3>How can I help you today?</h3>
+              <p>Ask a question, and I'll search the enterprise knowledge base to provide a grounded, cited answer.</p>
+            </div>
           ) : messages.map((message) => (
             <article key={message.id} className={`message-row ${message.role}`}>
               <div className="avatar">

@@ -3,6 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
+import sys
+from pathlib import Path
+_core_path = str(Path(__file__).resolve().parent.parent / "core")
+if _core_path not in sys.path:
+    sys.path.insert(0, _core_path)
+
 from supabase_client import supabase
 
 def init_analytics_db() -> None:
@@ -19,16 +25,12 @@ def log_audit_event(
 ) -> None:
     """
     Log any action to the audit_logs table.
-    
     Supported action_types:
       - chat_query           : Regular chat query (visible user-side)
-      - ghost_query          : Ghost-mode query (hidden from user, visible to admin)
       - upload_document      : File uploaded
       - delete_document      : File deleted
       - login                : User logged in
       - logout               : User logged out
-      - ghost_mode_on        : Ghost mode activated
-      - ghost_mode_off       : Ghost mode deactivated
       - knowledge_graph_view : Knowledge graph opened
       - document_view        : A document was previewed/accessed
       - knowledge_base_view  : Knowledge base panel opened
@@ -63,21 +65,17 @@ def log_query(
     cached: bool = False,
     session_id: str = "",
     user_id: str | None = None,
-    incognito: bool = False,
 ) -> None:
     """
     Logs a chat query.
-
-    - If incognito=False  → saved to both query_log (user history) AND audit_logs (admin).
-    - If incognito=True   → saved ONLY to audit_logs as 'ghost_query' (NOT visible in user history).
     """
     if not supabase:
         return
 
-    action_type = "ghost_query" if incognito else "chat_query"
+    action_type = "chat_query"
 
     try:
-        # Always log to audit_logs (admin-visible, regardless of ghost mode)
+        # Always log to audit_logs (admin-visible)
         supabase.table("audit_logs").insert({
             "action_type": action_type,
             "user_id": user_id,
@@ -89,31 +87,28 @@ def log_query(
                 "cache_hit": cached,
                 "retrieved_docs": sources or [],
                 "intent": intent,
-                "incognito": incognito,
             },
             "created_at": datetime.now(timezone.utc).isoformat(),
         }).execute()
     except Exception as e:
         print(f"[Audit] Failed to log {action_type}: {e}")
 
-    # Only log to query_log (user history) if NOT in ghost mode
-    if not incognito:
-        try:
-            supabase.table("query_log").insert({
-                "user_id": user_id,
-                "query": query,
-                "answer": answer,
-                "confidence": confidence,
-                "response_time_ms": response_time_ms,
-                "sources": sources or [],
-                "domain": domain or "",
-                "intent": intent,
-                "cached": cached,
-                "session_id": session_id,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }).execute()
-        except Exception as e:
-            print(f"[Audit] Failed to log query_log: {e}")
+    try:
+        supabase.table("query_log").insert({
+            "user_id": user_id,
+            "query": query,
+            "answer": answer,
+            "confidence": confidence,
+            "response_time_ms": response_time_ms,
+            "sources": sources or [],
+            "domain": domain or "",
+            "intent": intent,
+            "cached": cached,
+            "session_id": session_id,
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }).execute()
+    except Exception as e:
+        print(f"[Audit] Failed to log query_log: {e}")
 
 
 # ─── Dashboard Data ───────────────────────────────────────────────────────────

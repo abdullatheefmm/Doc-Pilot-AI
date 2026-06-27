@@ -1404,32 +1404,6 @@
   }
 }
 
-/* Ghost Mode Empty State Animation */
-@keyframes ghostFloat {
-  0% {
-    transform: translateY(0px) scale(1);
-    opacity: 0.8;
-    filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4));
-  }
-
-  50% {
-    transform: translateY(-15px) scale(1.05);
-    opacity: 1;
-    filter: drop-shadow(0 0 16px rgba(139, 92, 246, 0.6));
-  }
-
-  100% {
-    transform: translateY(0px) scale(1);
-    opacity: 0.8;
-    filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4));
-  }
-}
-
-.ghost-float-animation {
-  animation: ghostFloat 4s ease-in-out infinite;
-  color: var(--primary-color);
-}
-
 .sidebar-resizer:hover {
   background: var(--border-color) !important;
 }
