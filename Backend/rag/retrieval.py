@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time as _time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,89 @@ MODEL_NAME = "all-MiniLM-L6-v2"
 TOP_K = 4
 SIMILARITY_THRESHOLD = 0.15
 MAX_SNIPPET_CHARS = 320
+
+# ─── Policy Date Prioritization ──────────────────────────────────────────────
+
+def _get_document_upload_dates() -> dict[str, datetime]:
+    """Fetch upload timestamps for all indexed documents from audit_logs."""
+    dates: dict[str, datetime] = {}
+    if not supabase:
+        return dates
+    try:
+        res = supabase.table("audit_logs") \
+            .select("created_at, details") \
+            .eq("action_type", "upload_document") \
+            .order("created_at", desc=False) \
+            .execute()
+        for row in res.data:
+            details = row.get("details") or {}
+            filename = details.get("filename") or details.get("original_filename")
+            created_at = row.get("created_at")
+            if filename and created_at:
+                try:
+                    dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                    # Always keep the LATEST upload for a given filename
+                    if filename not in dates or dt > dates[filename]:
+                        dates[filename] = dt
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"[PolicyPriority] Could not fetch upload dates: {e}")
+    return dates
+
+
+def apply_date_priority_boost(results: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], str | None]:
+    """
+    Re-weight retrieved chunks so that documents uploaded more recently
+    receive a small score boost over older conflicting documents.
+
+    Returns (reordered_results, policy_note) where policy_note is a UI
+    notification string if a conflict was detected, else None.
+    """
+    if len(results) < 2:
+        return results, None
+
+    upload_dates = _get_document_upload_dates()
+    if not upload_dates:
+        return results, None
+
+    MAX_BOOST = 0.05  # Cap boost so relevance still dominates
+
+    newest_ts: datetime | None = None
+    oldest_ts: datetime | None = None
+
+    # Find newest & oldest among results to normalise
+    for r in results:
+        doc_ts = upload_dates.get(r["document"])
+        if doc_ts:
+            if newest_ts is None or doc_ts > newest_ts:
+                newest_ts = doc_ts
+            if oldest_ts is None or doc_ts < oldest_ts:
+                oldest_ts = doc_ts
+
+    policy_note: str | None = None
+
+    if newest_ts and oldest_ts and newest_ts != oldest_ts:
+        date_range_seconds = (newest_ts - oldest_ts).total_seconds()
+        for r in results:
+            doc_ts = upload_dates.get(r["document"])
+            if doc_ts:
+                age_ratio = (doc_ts - oldest_ts).total_seconds() / date_range_seconds
+                boost = round(age_ratio * MAX_BOOST, 5)
+                r["score"] = round(r["score"] + boost, 5)
+
+        # Build policy note for the frontend
+        newest_doc = max(results, key=lambda r: upload_dates.get(r["document"], oldest_ts))
+        newest_date_str = newest_ts.strftime("%B %d, %Y")
+        policy_note = (
+            f"**[VERSION & CONTINUATION GUARD]** Multiple related documents detected. "
+            f"The AI context includes both historical and recent files (prioritizing **{newest_doc['document']}**, "
+            f"uploaded {newest_date_str}) to seamlessly resolve active rules, continuations, and past references."
+        )
+
+    # Re-sort by boosted score
+    results.sort(key=lambda r: -r["score"])
+    return results, policy_note
 
 _model: SentenceTransformer | None = None
 
@@ -176,10 +260,10 @@ def retrieve(
     threshold: float = SIMILARITY_THRESHOLD,
     mode: str = "hybrid",
     domain: str | None = None,
-) -> tuple[list[dict[str, Any]], float]:
-    
+) -> tuple[list[dict[str, Any]], float, str | None]:
+    """Retrieve relevant chunks. Returns (results, elapsed_ms, policy_note)."""
     start = _time.perf_counter()
-    if not supabase: return [], 0.0
+    if not supabase: return [], 0.0, None
 
     results: list[dict[str, Any]] = []
 
@@ -194,11 +278,11 @@ def retrieve(
         k = 60
         rrf_scores: dict[int, float] = {}
         items_map = {}
-        
+
         for r in semantic_results:
             rrf_scores[r["idx"]] = rrf_scores.get(r["idx"], 0) + 1.0 / (k + r["rank"])
             items_map[r["idx"]] = r
-            
+
         for r in keyword_results:
             rrf_scores[r["idx"]] = rrf_scores.get(r["idx"], 0) + 1.0 / (k + r["rank"])
             items_map[r["idx"]] = r
@@ -209,8 +293,11 @@ def retrieve(
             result["score"] = round(score, 4)
             results.append(result)
 
+    # Apply date-priority boost for conflicting policy documents
+    results, policy_note = apply_date_priority_boost(results)
+
     elapsed = (_time.perf_counter() - start) * 1000
-    return results, round(elapsed, 1)
+    return results, round(elapsed, 1), policy_note
 
 if os.getenv("DISABLE_AUTO_INDEX") != "1":
     # Optional: Automatically sync local files to Supabase on startup

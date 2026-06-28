@@ -1,0 +1,12 @@
+﻿{
+  "include": ["Backend"],
+  "extraPaths": [
+    "Backend",
+    "Backend/core",
+    "Backend/rag",
+    "Backend/analytics",
+    "Backend/knowledge",
+    "Backend/agents"
+  ],
+  "pythonVersion": "3.13"
+}

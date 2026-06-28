@@ -23,6 +23,7 @@ from fastapi.responses import StreamingResponse
 from auth import require_admin, get_current_user, require_active_user, verify_user_password
 from supabase_client import supabase
 from pydantic import BaseModel, Field
+import security as _security
 from pypdf import PdfReader
 
 from chunking import normalize_whitespace
@@ -427,7 +428,7 @@ def ask_question_stream(request: QueryRequest):
     # Internal RAG Mode
     history_window = rag_qa.build_history_window(session_id)
     rewritten_query = rag_qa.rewrite_query(request.query.strip(), history_window)
-    results, retrieve_ms = retrieval.retrieve(
+    results, retrieve_ms, policy_note = retrieval.retrieve(
         rewritten_query,
         user_id=request.user_id,
         user_role=request.user_role,
@@ -436,6 +437,31 @@ def ask_question_stream(request: QueryRequest):
         mode=request.retrieval_mode,
         domain=request.domain,
     )
+
+    # 🔒 Prompt Injection Shield — block before streaming
+    chunk_texts = [r.get("text", "") for r in results]
+    injection_detected, _matched = _security.detect_prompt_injection(chunk_texts)
+    if injection_detected:
+        import json as _json
+        async def _blocked_stream():
+            blocked = _security.INJECTION_BLOCKED_RESPONSE
+            meta = {"type": "metadata", "confidence": 0.0, "intent": "security_block",
+                    "sources": [], "retrieval_scores": [], "rewritten_query": "",
+                    "session_id": session_id, "retrieve_ms": 0, "domain": request.domain or "all",
+                    "policy_note": None, "security_alert": True}
+            yield f"data: {_json.dumps(meta)}\n\n"
+            yield f"data: {_json.dumps({'type': 'token', 'content': blocked})}\n\n"
+            yield f"data: {_json.dumps({'type': 'done', 'generate_ms': 0})}\n\n"
+            try:
+                if supabase:
+                    supabase.table("audit_logs").insert({
+                        "action_type": "prompt_injection_blocked",
+                        "user_id": request.user_id,
+                        "details": {"query": request.query[:200], "patterns": _matched[:5]}
+                    }).execute()
+            except Exception:
+                pass
+        return StreamingResponse(_blocked_stream(), media_type="text/event-stream")
     confidence = rag_qa.compute_confidence(results)
     intent = rag_qa.detect_intent(request.query)
     sources = rag_qa.format_sources(results)
@@ -454,6 +480,8 @@ def ask_question_stream(request: QueryRequest):
             "session_id": session_id,
             "retrieve_ms": retrieve_ms,
             "domain": request.domain or "all",
+            "policy_note": policy_note,
+            "security_alert": False,
         }
         yield f"data: {json.dumps(meta)}\n\n"
 
@@ -539,7 +567,34 @@ async def upload_document(
 
     extracted_text = normalize_whitespace(read_uploaded_text(upload_path))
     normalized_path = DATA_DIR / f"{upload_path.stem}.txt"
-    normalized_path.write_text(extracted_text, encoding="utf-8")
+
+    # 🛡️ Enterprise DLP: scan & redact PII before storing
+    from dlp import scan_and_redact_pii
+    safe_text, dlp_redactions = scan_and_redact_pii(extracted_text)
+    normalized_path.write_text(safe_text, encoding="utf-8")
+
+    dlp_warning: dict | None = None
+    if dlp_redactions:
+        total_redacted = sum(r["count"] for r in dlp_redactions)
+        dlp_warning = {
+            "redactions": dlp_redactions,
+            "total": total_redacted,
+            "message": f"[DLP GUARDRAIL] {total_redacted} sensitive item(s) redacted before indexing."
+        }
+        # Log DLP event to audit trail
+        if supabase:
+            try:
+                supabase.table("audit_logs").insert({
+                    "action_type": "dlp_redaction_triggered",
+                    "user_id": user["id"],
+                    "details": {
+                        "filename": normalized_path.name,
+                        "email": user["email"],
+                        "redactions": dlp_redactions,
+                    }
+                }).execute()
+            except Exception as e:
+                print(f"Failed to log DLP audit: {e}")
 
     # Assign domain
     knowledge_domains.assign_document_domain(normalized_path.name, domain)
@@ -584,6 +639,7 @@ async def upload_document(
         "documents_indexed": len(retrieval.get_documents()),
         "domain": domain,
         "summary": summary,
+        "dlp_warning": dlp_warning,
     }
 
 

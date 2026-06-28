@@ -701,13 +701,15 @@ export default function AdminDashboard({ session, showToast }) {
 
                   // Action badge config
                   const actionBadgeMap = {
-                    chat_query:           { label: 'Chat Query',        color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
-                    upload_document:      { label: 'Upload',            color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
-                    delete_document:      { label: 'Deletion',          color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
-                    login:                { label: 'Login',             color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
-                    logout:               { label: 'Logout',            color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
-                    knowledge_graph_view: { label: 'Graph View',        color: '#00d2ff', bg: 'rgba(0,210,255,0.12)' },
-                    document_view:        { label: 'Document View',     color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+                    chat_query:                  { label: 'Chat Query',          color: '#3b82f6', bg: 'rgba(59,130,246,0.12)' },
+                    upload_document:             { label: 'Upload',              color: '#10b981', bg: 'rgba(16,185,129,0.12)' },
+                    delete_document:             { label: 'Deletion',            color: '#ef4444', bg: 'rgba(239,68,68,0.12)' },
+                    login:                       { label: 'Login',               color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+                    logout:                      { label: 'Logout',              color: '#6b7280', bg: 'rgba(107,114,128,0.12)' },
+                    knowledge_graph_view:        { label: 'Graph View',          color: '#00d2ff', bg: 'rgba(0,210,255,0.12)' },
+                    document_view:               { label: 'Document View',       color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
+                    dlp_redaction_triggered:     { label: 'DLP Redaction',       color: '#f97316', bg: 'rgba(249,115,22,0.15)' },
+                    prompt_injection_blocked:    { label: 'Injection Blocked',   color: '#ef4444', bg: 'rgba(239,68,68,0.18)' },
                   };
                   const badge = actionBadgeMap[l.action_type] || { label: l.action_type, color: 'var(--muted-text)', bg: 'rgba(255,255,255,0.05)' };
 

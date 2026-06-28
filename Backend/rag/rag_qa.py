@@ -16,6 +16,7 @@ import reranker
 import web_agent
 import dlp
 import evaluation
+import security
 
 from llm_client import get_llm_client, LLM_MODEL
 FEEDBACK_DB_PATH = Path("data/feedback.db")
@@ -265,10 +266,17 @@ Do not use outside knowledge.
 Be concise, clear, and cite supporting sources inline like [Source 1].
 Format your answer using markdown where appropriate (bold, lists, code blocks).
 
-CRITICAL INSTRUCTION FOR ARCHITECTURE / WORKFLOW DIAGRAMS:
-If the user asks for a structural breakdown, workflow, hierarchy, diagram, or architecture, you MUST provide BOTH:
-1. A comprehensive, descriptive text explanation explaining the architecture/concept in thorough detail.
-2. A visual flowchart diagram using Mermaid.js inside ```mermaid ... ``` code blocks.
+CRITICAL RULE FOR MULTI-VERSION & MULTI-PART DOCUMENTS:
+When multiple documents or versions appear in the Context (e.g. older vs newer upload dates, or "Part 1" vs "Part 2"):
+1. Continuation / Multi-Part: If documents represent sequential parts, volumes, or addendums (e.g. Part 1 and Part 2), combine and synthesize facts from both parts together.
+2. Historical Reference: If the user explicitly asks about past rules, historical data, or compares older vs newer policies, accurately cite the older document.
+3. Policy Replacement: If documents contain conflicting policies for the exact same topic and the user asks for current rules, prioritize the newest document while mentioning that it supersedes earlier versions.
+
+CRITICAL INSTRUCTION FOR DIAGRAMS & ARCHITECTURES:
+When visualizing workflows, structures, hierarchies, or architectures:
+1. EXISTING DIAGRAMS IN DOCUMENT: If the retrieved Context already contains a diagram, flowchart, ASCII layout, or structured sequence, faithfully convert and render that exact diagram using Mermaid.js (` ```mermaid `) so the user sees the document's authentic visual structure.
+2. GENERATING NEW DIAGRAMS: If the Context explains an architecture or process in text/paragraphs without a visual diagram, you MUST generate a brand new, accurate Mermaid flowchart diagram visualizing those conceptual steps.
+3. FORMAT: Always provide a comprehensive text explanation accompanied by the ` ```mermaid ` code block.
 MANDATORY MERMAID SYNTAX RULES (TO PREVENT RENDER CRASHES):
 - Node IDs MUST be simple alphanumeric words without hyphens or special characters (e.g., use S1, L1, Cam1 instead of STRATUM-1 or Node-A).
 - Node labels MUST be wrapped in double quotes inside brackets (e.g., S1["STRATUM-1 Engine"] --> L1["LiDAR and Camera Array"]).
@@ -429,11 +437,11 @@ def generate_answer(
 
     # Retrieve (fetch a larger candidate pool for reranking)
     t0 = _time.perf_counter()
-    candidate_results, retrieve_ms = retrieval.retrieve(
+    candidate_results, retrieve_ms, policy_note = retrieval.retrieve(
         rewritten_query,
         user_id=user_id,
         user_role=user_role,
-        top_k=25, # Fetch 25 candidates
+        top_k=25,  # Fetch 25 candidates
         threshold=threshold,
         mode=mode,
         domain=domain,
@@ -443,6 +451,29 @@ def generate_answer(
     rerank_t0 = _time.perf_counter()
     results = reranker.rerank_chunks(rewritten_query, candidate_results, top_n=top_k)
     rerank_ms = (_time.perf_counter() - rerank_t0) * 1000
+
+    # 🔒 Prompt Injection Shield — scan retrieved chunks before LLM call
+    chunk_texts = [r.get("text", "") for r in results]
+    injection_detected, matched_patterns = security.detect_prompt_injection(chunk_texts)
+    if injection_detected:
+        blocked_answer = security.INJECTION_BLOCKED_RESPONSE
+        append_to_history(session_id, "user", query, user_id=user_id)
+        append_to_history(session_id, "assistant", blocked_answer, user_id=user_id)
+        return {
+            "answer": blocked_answer,
+            "sources": [],
+            "confidence": 0.0,
+            "session_id": session_id,
+            "rewritten_query": rewritten_query,
+            "intent": "security_block",
+            "cached": False,
+            "response_time_ms": round((_time.perf_counter() - overall_start) * 1000, 1),
+            "timing": {},
+            "retrieval_scores": [],
+            "domain": domain or "all",
+            "security_alert": True,
+            "policy_note": None,
+        }
 
     # Generate
     t0 = _time.perf_counter()
@@ -474,6 +505,8 @@ def generate_answer(
         },
         "retrieval_scores": format_retrieval_scores(results),
         "domain": domain or "all",
+        "policy_note": policy_note,
+        "security_alert": False,
     }
 
     # Cache the result

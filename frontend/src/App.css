@@ -1440,3 +1440,66 @@
 .app-shell.sidebar-closed {
   grid-template-columns: minmax(0, 1fr);
 }
+
+/* ─── Enterprise Feature Styles ──────────────────────────────────────────── */
+
+/* Citation highlight — the supporting sentence glows gold */
+mark.citation-highlight {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.35) 0%, rgba(245, 158, 11, 0.25) 100%);
+  color: inherit;
+  border-radius: 3px;
+  padding: 1px 3px;
+  border-bottom: 2px solid rgba(245, 158, 11, 0.7);
+  font-weight: 600;
+  transition: background 0.2s;
+}
+
+mark.citation-highlight:hover {
+  background: rgba(251, 191, 36, 0.55);
+}
+
+/* Enterprise alert banners (policy note + security alert) */
+.enterprise-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  margin-top: 8px;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  border: 1px solid;
+  animation: slideInAlert 0.3s ease;
+}
+
+@keyframes slideInAlert {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.enterprise-alert-icon {
+  font-size: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+/* 📅 Policy Note — blue/indigo tone */
+.policy-note-banner {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(79, 70, 229, 0.08) 100%);
+  border-color: rgba(99, 102, 241, 0.35);
+  color: var(--text-color);
+}
+
+/* 🚨 Security Alert — red/rose tone */
+.security-alert-banner {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.12) 0%, rgba(220, 38, 38, 0.08) 100%);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: var(--text-color);
+}
+
+/* 🛡️ DLP warning toast — amber tone */
+.toast.warning {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.95), rgba(217, 119, 6, 0.95));
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}

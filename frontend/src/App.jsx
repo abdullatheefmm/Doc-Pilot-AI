@@ -66,15 +66,6 @@ export default function App() {
     return saved ? JSON.parse(saved) : null;
   });
 
-  const handleLogout = () => {
-    if (session?.user?.email) {
-      logAuditEvent('logout', session.user.id, userRole, { full_name: userFullName });
-    }
-    localStorage.removeItem('docpilot-session-data');
-    sessionStorage.removeItem('login-logged');
-    setSession(null);
-  };
-
 
   const [sessionId, setSessionId] = useState('');
 
@@ -209,6 +200,22 @@ export default function App() {
   const [activeBranchingMsgId, setActiveBranchingMsgId] = useState(null);
   const [branchInputText, setBranchInputText] = useState('');
 
+  const handleLogout = () => {
+    if (session?.user?.email) {
+      logAuditEvent('logout', session.user.id, userRole, { full_name: userFullName });
+    }
+    localStorage.removeItem('docpilot-session-data');
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    sessionStorage.removeItem('login-logged');
+    const freshSid = createSessionId();
+    localStorage.setItem(SESSION_STORAGE_KEY, freshSid);
+    setSessionId(freshSid);
+    setMessages([]);
+    setChatSessions([]);
+    setDocuments([]);
+    setSession(null);
+  };
+
   const _getPid = (sess, _allSessions) => {
     if (sess.parent_session_id) return sess.parent_session_id;
     try {
@@ -239,7 +246,7 @@ export default function App() {
         setSessionId(newBranchId);
         await fetchSessions();
         await fetchHistory(newBranchId);
-        showToast("🔀 Branch created — switched to new thread!");
+        showToast("Branch created — switched to new thread.");
         // Pass the new branch ID explicitly to avoid stale closure bug
         setTimeout(() => {
           handleSend(queryText, newBranchId);
@@ -386,7 +393,13 @@ export default function App() {
           headers: { 'Authorization': `Bearer ${session?.access_token}` }
         });
         if (!res.ok) throw new Error((await res.json()).detail || 'Upload failed');
-        showToast(`Uploaded ${filename} into ${targetDomain}`);
+        const data = await res.json();
+        // Show DLP warning if sensitive data was redacted
+        if (data.dlp_warning) {
+          showToast(data.dlp_warning.message, 'warning');
+        } else {
+          showToast(`✅ Uploaded ${filename} into ${targetDomain}`);
+        }
         fetchDocuments();
         setActiveTab('kb');
       } catch (e) {
@@ -485,7 +498,9 @@ export default function App() {
                   rewrittenQuery: data.rewritten_query, 
                   timing: { retrieve_ms: data.retrieve_ms },
                   chart_data: data.chart_data,
-                  reasoning: data.reasoning
+                  reasoning: data.reasoning,
+                  policy_note: data.policy_note || null,
+                  security_alert: data.security_alert || false,
                 } : m));
                 setPipelineStep(4);
               } else if (data.type === 'token') {
@@ -599,6 +614,10 @@ export default function App() {
       <div className="app-container">
         <Auth onAuthSuccess={(s) => {
           localStorage.setItem('docpilot-session-data', JSON.stringify(s));
+          const freshSid = createSessionId();
+          localStorage.setItem(SESSION_STORAGE_KEY, freshSid);
+          setSessionId(freshSid);
+          setMessages([]);
           setSession(s);
         }} />
       </div>
@@ -1339,7 +1358,10 @@ export default function App() {
                         }}
                         title="Branch side thread"
                       >
-                        🔀 Branch
+                        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                          Branch
+                        </span>
                       </button>
                     )}
                   </div>
@@ -1374,17 +1396,56 @@ export default function App() {
                   {isStreaming && message.id === currentStreamId && message.text && <span className="typing-cursor" />}
                 </div>
 
+                {/* 🔒 Security Alert Banner */}
+                {message.security_alert && (
+                  <div className="enterprise-alert security-alert-banner">
+                    <span className="enterprise-alert-icon" style={{ display: 'flex', alignItems: 'center' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                    </span>
+                    <span><strong>Prompt Injection Blocked</strong> — A hidden override command was detected in a retrieved document and blocked. This incident has been logged.</span>
+                  </div>
+                )}
+
+                {/* 📅 Policy Note Banner */}
+                {message.policy_note && (
+                  <div className="enterprise-alert policy-note-banner">
+                    <span className="enterprise-alert-icon" style={{ display: 'flex', alignItems: 'center' }}>
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    </span>
+                    <span dangerouslySetInnerHTML={{ __html: message.policy_note.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>') }} />
+                  </div>
+                )}
+
                 {message.sources?.length > 0 && (
                   <details className="citation-panel">
                     <summary>View {message.sources.length} Sources</summary>
                     <RetrievalScoreBars scores={message.retrieval_scores} />
                     <div className="citation-list">
-                      {message.sources.map((s, i) => (
-                        <div key={i} className="citation-card">
-                          <p>{s.document}</p>
-                          <span>{s.text}</span>
-                        </div>
-                      ))}
+                      {message.sources.map((s, i) => {
+                        // Find the key sentence: longest sentence matching a keyword from the answer
+                        const answerWords = (message.text || '').toLowerCase().split(/\W+/).filter(w => w.length > 5);
+                        const sentences = (s.text || '').split(/(?<=[.?!])\s+/);
+                        let highlightedText = s.text;
+                        let bestSentence = '';
+                        let bestCount = 0;
+                        for (const sent of sentences) {
+                          const sentLower = sent.toLowerCase();
+                          const matchCount = answerWords.filter(w => sentLower.includes(w)).length;
+                          if (matchCount > bestCount) { bestCount = matchCount; bestSentence = sent; }
+                        }
+                        if (bestSentence && bestCount >= 2) {
+                          highlightedText = s.text.replace(
+                            bestSentence,
+                            `<mark class="citation-highlight">${bestSentence}</mark>`
+                          );
+                        }
+                        return (
+                          <div key={i} className="citation-card">
+                            <p>{s.document}</p>
+                            <span dangerouslySetInnerHTML={{ __html: highlightedText }} />
+                          </div>
+                        );
+                      })}
                     </div>
                   </details>
                 )}
@@ -1432,7 +1493,10 @@ export default function App() {
                     onClick={() => { setSessionId(branch.id); fetchHistory(branch.id); }}
                     style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(139,92,246,0.15)', border: '1px dashed #8b5cf6', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', transition: 'all 0.2s' }}
                   >
-                    <span style={{ fontSize: '0.85rem', color: '#ddd', fontWeight: 600 }}>🔀 Branched Thread: "{branch.title}"</span>
+                    <span style={{ fontSize: '0.85rem', color: '#ddd', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                      Branched Thread: "{branch.title}"
+                    </span>
                     <span style={{ fontSize: '0.75rem', color: '#a78bfa' }}>Jump to branch →</span>
                   </div>
                 ))}
@@ -1454,7 +1518,8 @@ export default function App() {
                       title="Ask follow-up question in side branch without polluting thread"
                       style={{ color: '#c4b5fd', borderColor: 'rgba(139,92,246,0.4)', background: activeBranchingMsgId === message.id ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.08)', display: 'flex', alignItems: 'center', gap: 6 }}
                     >
-                      🔀 Branch Thread
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                      Branch Thread
                     </button>
                     <button 
                       className="feedback-button" 
@@ -1758,7 +1823,13 @@ export default function App() {
                           boxShadow: isCurrent ? '0 0 15px rgba(59,130,246,0.3)' : 'none'
                         }}
                       >
-                        <div style={{ fontSize: '1.2rem' }}>{depth === 0 ? '💬' : '🔀'}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', color: isCurrent ? '#60a5fa' : 'var(--muted-text)' }}>
+                          {depth === 0 ? (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                          ) : (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+                          )}
+                        </div>
                         <div style={{ flex: 1, overflow: 'hidden' }}>
                           <div style={{ fontWeight: isCurrent ? 700 : 600, color: isCurrent ? '#60a5fa' : 'var(--text-color)', fontSize: '0.95rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {node.title}
