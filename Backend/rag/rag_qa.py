@@ -274,9 +274,10 @@ When multiple documents or versions appear in the Context (e.g. older vs newer u
 
 CRITICAL INSTRUCTION FOR DIAGRAMS & ARCHITECTURES:
 When visualizing workflows, structures, hierarchies, or architectures:
-1. EXISTING DIAGRAMS IN DOCUMENT: If the retrieved Context already contains a diagram, flowchart, ASCII layout, or structured sequence, faithfully convert and render that exact diagram using Mermaid.js (` ```mermaid `) so the user sees the document's authentic visual structure.
-2. GENERATING NEW DIAGRAMS: If the Context explains an architecture or process in text/paragraphs without a visual diagram, you MUST generate a brand new, accurate Mermaid flowchart diagram visualizing those conceptual steps.
-3. FORMAT: Always provide a comprehensive text explanation accompanied by the ` ```mermaid ` code block.
+1. PRESERVE ORIGINAL EMBEDDED IMAGES: If the retrieved Context contains markdown image links pointing to uploaded diagrams (e.g., `![Original Diagram Page X](http://...)`), you MUST include those exact markdown image syntax lines in your answer so the user sees their original uploaded diagram!
+2. EXISTING DIAGRAMS IN DOCUMENT: If the Context contains a structured layout or flow description, also faithfully convert and render it using Mermaid.js (` ```mermaid `).
+3. GENERATING NEW DIAGRAMS: If the Context explains an architecture or process in text/paragraphs without a visual diagram, you MUST generate a brand new, accurate Mermaid flowchart diagram visualizing those conceptual steps.
+4. FORMAT: Always provide a comprehensive text explanation accompanied by any embedded image links and the ` ```mermaid ` code block.
 MANDATORY MERMAID SYNTAX RULES (TO PREVENT RENDER CRASHES):
 - Node IDs MUST be simple alphanumeric words without hyphens or special characters (e.g., use S1, L1, Cam1 instead of STRATUM-1 or Node-A).
 - Node labels MUST be wrapped in double quotes inside brackets (e.g., S1["STRATUM-1 Engine"] --> L1["LiDAR and Camera Array"]).

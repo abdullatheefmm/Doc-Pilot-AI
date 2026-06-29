@@ -33,9 +33,18 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         return {"id": "local-test-uuid", "role": "super_admin", "status": "active", "email": "admin@docpilot.ai", "full_name": "Super Admin"}
 
 def require_admin(user = Depends(get_current_user)):
-    if user["role"] != "super_admin":
+    role = str(user.get("role") or "").lower()
+    is_admin = role == "super_admin" or role.endswith("_admin")
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return user
+
+def require_super_admin(user = Depends(get_current_user)):
+    role = str(user.get("role") or "").lower()
+    if role != "super_admin":
         raise HTTPException(status_code=403, detail="Super Admin privileges required")
     return user
+
 
 def require_active_user(user = Depends(get_current_user)):
     if user.get("status") in ["pending", "revoked"]:

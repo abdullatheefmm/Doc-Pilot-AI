@@ -46,6 +46,17 @@ def process_pdf_with_vision(file_path: Path) -> str:
             if len(image_bytes) < 5000:
                 continue
 
+            diagrams_dir = Path("data/fastapi_docs/uploads/diagrams")
+            diagrams_dir.mkdir(parents=True, exist_ok=True)
+            img_filename = f"{file_path.stem}_page{page_num + 1}_img{img_index + 1}.{ext}"
+            img_path = diagrams_dir / img_filename
+            img_url = ""
+            try:
+                img_path.write_bytes(image_bytes)
+                img_url = f"http://127.0.0.1:8000/uploads/diagrams/{img_filename}"
+            except Exception as save_err:
+                print(f"Failed to save image file: {save_err}")
+
             base64_image = base64.b64encode(image_bytes).decode("utf-8")
             
             try:
@@ -67,7 +78,8 @@ def process_pdf_with_vision(file_path: Path) -> str:
                     max_tokens=300
                 )
                 description = response.choices[0].message.content
-                full_text.append(f"\n[Image {img_index + 1} on Page {page_num + 1}]:\n{description}\n")
+                img_markdown = f"\n![Original Diagram Page {page_num + 1}]({img_url})\n" if img_url else "\n"
+                full_text.append(f"{img_markdown}[Image {img_index + 1} on Page {page_num + 1}]:\n{description}\n")
             except Exception as e:
                 print(f"Failed to describe image {img_index} on page {page_num}: {e}")
 

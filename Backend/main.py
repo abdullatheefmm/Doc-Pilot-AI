@@ -19,8 +19,9 @@ import os
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
-from auth import require_admin, get_current_user, require_active_user, verify_user_password
+from auth import require_admin, require_super_admin, get_current_user, require_active_user, verify_user_password
 from supabase_client import supabase
 from pydantic import BaseModel, Field
 import security as _security
@@ -45,6 +46,13 @@ app.add_middleware(
 
 DATA_DIR = Path("data/fastapi_docs")
 UPLOAD_DIR = DATA_DIR / "uploads"
+DIAGRAMS_DIR = UPLOAD_DIR / "diagrams"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+DIAGRAMS_DIR.mkdir(parents=True, exist_ok=True)
+
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
 SUPPORTED_UPLOADS = {
     ".pdf",   # PDF documents
     ".txt",   # Plain text
@@ -141,6 +149,7 @@ class UrlIngestRequest(BaseModel):
 def ensure_directories() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    DIAGRAMS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _extract_pdf(file_path: Path) -> str:
@@ -180,16 +189,34 @@ def _extract_docx(file_path: Path) -> str:
 
 
 def _extract_pptx(file_path: Path) -> str:
-    """Extract text from a PPTX file, slide by slide."""
+    """Extract text and images from a PPTX file, slide by slide."""
     try:
         from pptx import Presentation
+        from llm_client import describe_image_with_vision
         prs = Presentation(str(file_path))
         lines: list[str] = []
+        diagrams_dir = Path("data/fastapi_docs/uploads/diagrams")
+        diagrams_dir.mkdir(parents=True, exist_ok=True)
         for slide_num, slide in enumerate(prs.slides, start=1):
             lines.append(f"--- Slide {slide_num} ---")
+            img_count = 0
             for shape in slide.shapes:
                 if hasattr(shape, "text") and shape.text.strip():
                     lines.append(shape.text.strip())
+                if hasattr(shape, "image"):
+                    try:
+                        image_bytes = shape.image.blob
+                        if len(image_bytes) >= 5000:
+                            img_count += 1
+                            ext = shape.image.ext or "png"
+                            img_filename = f"{file_path.stem}_slide{slide_num}_img{img_count}.{ext}"
+                            img_path = diagrams_dir / img_filename
+                            img_path.write_bytes(image_bytes)
+                            img_url = f"http://127.0.0.1:8000/uploads/diagrams/{img_filename}"
+                            desc = describe_image_with_vision(image_bytes, f"image/{ext}")
+                            lines.append(f"\n![Original Diagram Slide {slide_num}]({img_url})\n[Image {img_count} on Slide {slide_num}]:\n{desc}\n")
+                    except Exception as img_err:
+                        print(f"PPTX image extraction failed on slide {slide_num}: {img_err}")
         return "\n".join(lines)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"PPTX extraction failed: {exc}") from exc
@@ -644,7 +671,7 @@ async def upload_document(
 
 
 @app.get("/api/documents")
-async def get_documents():
+async def get_documents(user: dict = Depends(require_active_user)):
     docs = retrieval.get_document_inventory()
     domains = knowledge_domains.get_all_document_domains()
     summaries = knowledge_domains.get_all_summaries()
@@ -695,6 +722,11 @@ async def get_documents():
         doc["date"] = uploaded_at or "Unknown"
         doc["access_count"] = access_counts.get(doc_name, 0)
         doc["trust_metrics"] = trust_metrics_map.get(doc_name, {"document_name": doc_name, "upvotes": 0, "downvotes": 0, "ai_score": 85})
+        
+    role = str(user.get("role") or "").lower()
+    if role != "super_admin" and role.endswith("_admin"):
+        base_domain = role.replace("_admin", "")
+        docs = [d for d in docs if d.get("domain") == base_domain]
         
     return {"documents": docs}
 
@@ -961,14 +993,36 @@ def get_admin_analytics(user: dict = Depends(require_admin)):
     import analytics
     from datetime import datetime, timedelta
     from supabase_client import supabase
+    import knowledge_domains
+    import json
     
     if not supabase: return {"status": "error"}
+    
+    role = str(user.get("role") or "").lower()
+    base_domain = None if role == "super_admin" else role.replace("_admin", "")
+    domains_map = knowledge_domains.get_all_document_domains()
     
     now = datetime.utcnow()
     last_week = (now - timedelta(days=7)).isoformat()
     
     logs_res = supabase.table("audit_logs").select("*").gte("created_at", last_week).execute()
-    queries = [l for l in logs_res.data if l["action_type"] == "chat_query"]
+    raw_queries = [l for l in logs_res.data if l["action_type"] == "chat_query"]
+    
+    queries = []
+    for q in raw_queries:
+        details = q.get("details") or {}
+        if isinstance(details, str):
+            try: details = json.loads(details)
+            except: details = {}
+        q["parsed_details"] = details
+        if base_domain:
+            q_domain = details.get("domain")
+            retrieved = details.get("retrieved_docs", [])
+            # Include query if its domain matches or if any retrieved doc belongs to this domain
+            if q_domain == base_domain or any(domains_map.get(d, "general") == base_domain for d in retrieved):
+                queries.append(q)
+        else:
+            queries.append(q)
     
     dates = {}
     for d in range(7):
@@ -982,23 +1036,35 @@ def get_admin_analytics(user: dict = Depends(require_admin)):
     trend = [{"date": k, "queries": v} for k, v in dates.items()]
     
     cost_res = supabase.table("audit_logs").select("details").eq("action_type", "chat_query").execute()
-    total_tokens = sum((l.get("details") or {}).get("tokens_used", 0) for l in cost_res.data)
+    total_tokens = 0
+    for l in cost_res.data:
+        details = l.get("details") or {}
+        if isinstance(details, str):
+            try: details = json.loads(details)
+            except: details = {}
+        if base_domain:
+            if details.get("domain") != base_domain and not any(domains_map.get(d, "general") == base_domain for d in details.get("retrieved_docs", [])):
+                continue
+        total_tokens += details.get("tokens_used", 0)
+        
     est_cost = (total_tokens / 1000) * 0.002
     
     # Calculate knowledge gaps from low confidence queries
-    low_conf = [q for q in queries if (q.get("details") or {}).get("confidence", 1.0) < 0.5]
+    low_conf = [q for q in queries if q.get("parsed_details", {}).get("confidence", 1.0) < 0.5]
     gap_counts = {}
     for q in low_conf:
-        query_text = (q.get("details") or {}).get("query", "Unknown")
+        query_text = q.get("parsed_details", {}).get("query", "Unknown")
         gap_counts[query_text] = gap_counts.get(query_text, 0) + 1
     
     gap_summary = [{"query": k, "misses": v, "confidence": (1 - min(1.0, v*0.1))*100} for k, v in list(gap_counts.items())[:5]]
     
-    # Calculate top documents
+    # Calculate top documents scoped strictly to domain
     doc_counts = {}
     for q in queries:
-        docs = (q.get("details") or {}).get("retrieved_docs", [])
+        docs = q.get("parsed_details", {}).get("retrieved_docs", [])
         for d in docs:
+            if base_domain and domains_map.get(d, "general") != base_domain:
+                continue
             doc_counts[d] = doc_counts.get(d, 0) + 1
             
     doc_summary = [{"doc": k, "hits": v} for k, v in sorted(doc_counts.items(), key=lambda x: x[1], reverse=True)[:5]]
@@ -1009,7 +1075,7 @@ def get_admin_analytics(user: dict = Depends(require_admin)):
             "total_queries": len(queries),
             "estimated_cost": round(est_cost, 4),
             "total_tokens": total_tokens,
-            "cache_hits": len([q for q in queries if (q.get("details") or {}).get("cache_hit")])
+            "cache_hits": len([q for q in queries if q.get("parsed_details", {}).get("cache_hit")])
         },
         "knowledge_gaps": gap_summary,
         "top_documents": doc_summary
@@ -1031,7 +1097,23 @@ def get_audit_logs(user: dict = Depends(require_admin)):
     from supabase_client import supabase
     if not supabase: return {"status": "error"}
     res = supabase.table("audit_logs").select("*").order("created_at", desc=True).limit(500).execute()
-    return {"logs": res.data}
+    logs_data = res.data or []
+    role = str(user.get("role") or "").lower()
+    if role != "super_admin":
+        base_domain = role.replace("_admin", "")
+        filtered = []
+        for l in logs_data:
+            details = l.get("details") or {}
+            if isinstance(details, str):
+                try:
+                    import json
+                    details = json.loads(details)
+                except:
+                    details = {}
+            if isinstance(details, dict) and details.get("domain") == base_domain:
+                filtered.append(l)
+        logs_data = filtered
+    return {"logs": logs_data}
 
 @app.delete("/api/admin/audit_logs/purge")
 def purge_audit_logs(days: int = 30, user: dict = Depends(require_admin)):
@@ -1067,10 +1149,12 @@ def resolve_auth_id(emp_id: str, is_admin_login: str = "false"):
         raise HTTPException(status_code=404, detail="Invalid credentials")
         
     user_data = res.data[0]
-    if is_admin_login == "true" and user_data.get("role") != "super_admin":
-        raise HTTPException(status_code=403, detail="Invalid credentials")
-    if is_admin_login == "false" and user_data.get("role") == "super_admin":
-        raise HTTPException(status_code=403, detail="Invalid credentials")
+    role = str(user_data.get("role") or "").lower()
+    is_admin_role = role == "super_admin" or role.endswith("_admin")
+    if is_admin_login == "true" and not is_admin_role:
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    if is_admin_login == "false" and is_admin_role:
+        raise HTTPException(status_code=403, detail="Please use Admin Login")
         
     return {"email": user_data.get("email")}
 
@@ -1079,7 +1163,12 @@ def get_users(user: dict = Depends(require_admin)):
     from supabase_client import supabase
     if not supabase: return {"status": "error"}
     res = supabase.table("user_profiles").select("*").execute()
-    return {"users": res.data}
+    users_data = res.data or []
+    role = str(user.get("role") or "").lower()
+    if role != "super_admin":
+        base_domain = role.replace("_admin", "")
+        users_data = [u for u in users_data if str(u.get("role") or "").lower() in [base_domain, f"{base_domain}_admin"]]
+    return {"users": users_data}
 
 @app.delete("/api/admin/users/{user_id}")
 def delete_user(user_id: str, user: dict = Depends(require_admin)):
@@ -1092,15 +1181,23 @@ from pydantic import BaseModel
 class StatusUpdate(BaseModel):
     status: str
 
+class RoleUpdate(BaseModel):
+    role: str
+
 @app.put("/api/admin/users/{user_id}/status")
 def update_user_status(user_id: str, status_data: StatusUpdate, user: dict = Depends(require_admin)):
     from supabase_client import supabase
     if not supabase: return {"status": "error"}
-    
     if status_data.status not in ["active", "pending", "revoked"]:
         raise HTTPException(status_code=400, detail="Invalid status")
-        
     supabase.table("user_profiles").update({"status": status_data.status}).eq("user_id", user_id).execute()
+    return {"status": "success"}
+
+@app.put("/api/admin/users/{user_id}/role")
+def update_user_role(user_id: str, role_data: RoleUpdate, user: dict = Depends(require_super_admin)):
+    from supabase_client import supabase
+    if not supabase: return {"status": "error"}
+    supabase.table("user_profiles").update({"role": role_data.role}).eq("user_id", user_id).execute()
     return {"status": "success"}
 
 
@@ -1108,8 +1205,107 @@ def update_user_status(user_id: str, status_data: StatusUpdate, user: dict = Dep
 def get_security_alerts(user: dict = Depends(require_admin)):
     from supabase_client import supabase
     if not supabase: return {"status": "error"}
-    res = supabase.table("audit_logs").select("*").in_("action_type", ["unauthorized_access", "bulk_download", "suspicious_login"]).order("created_at", desc=True).limit(50).execute()
-    return {"alerts": res.data}
+    res = supabase.table("audit_logs").select("*").in_("action_type", ["unauthorized_access", "bulk_download", "suspicious_login", "prompt_injection_blocked", "dlp_violation"]).order("created_at", desc=True).limit(100).execute()
+    alerts_data = res.data or []
+    role = str(user.get("role") or "").lower()
+    if role != "super_admin":
+        base_domain = role.replace("_admin", "")
+        filtered = []
+        for a in alerts_data:
+            details = a.get("details") or {}
+            if isinstance(details, str):
+                try:
+                    import json
+                    details = json.loads(details)
+                except:
+                    details = {}
+            if isinstance(details, dict) and details.get("domain") == base_domain:
+                filtered.append(a)
+        alerts_data = filtered
+    return {"alerts": alerts_data}
+
+DB_CONNECTIONS_FILE = DATA_DIR / "external_databases.json"
+
+def get_db_connections_data():
+    import json
+    if not DB_CONNECTIONS_FILE.exists():
+        default_conns = [
+            {"id": "conn_1", "name": "Engineering Prod DB", "db_type": "PostgreSQL", "uri": "postgresql://admin:***@db.eng.internal:5432/prod", "domain": "engineering", "status": "Connected", "last_sync": "10 mins ago", "tables": ["tech_specs", "api_endpoints", "architecture_decisions"]},
+            {"id": "conn_2", "name": "Finance Ledger & Payroll", "db_type": "Supabase", "uri": "https://xyz.supabase.co", "domain": "finance", "status": "Connected", "last_sync": "1 hour ago", "tables": ["q3_budgets", "vendor_invoices", "audit_trails"]},
+            {"id": "conn_3", "name": "HR Policy Portal DB", "db_type": "MySQL", "uri": "mysql://hr_user:***@db.hr.internal:3306/hr_db", "domain": "hr", "status": "Syncing", "last_sync": "Just now", "tables": ["employees", "compliance_rules"]}
+        ]
+        try:
+            with open(DB_CONNECTIONS_FILE, "w", encoding="utf-8") as f:
+                json.dump(default_conns, f, indent=2)
+        except Exception:
+            return default_conns
+    try:
+        import json
+        with open(DB_CONNECTIONS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_db_connections_data(conns):
+    import json
+    try:
+        with open(DB_CONNECTIONS_FILE, "w", encoding="utf-8") as f:
+            json.dump(conns, f, indent=2)
+    except Exception as e:
+        print(f"Error saving db connections: {e}")
+
+class DBConnectionCreate(BaseModel):
+    name: str
+    db_type: str
+    uri: str
+    domain: str
+    tables: list[str] = []
+
+@app.get("/api/admin/database_connections")
+def list_database_connections(user: dict = Depends(require_admin)):
+    conns = get_db_connections_data()
+    role = str(user.get("role") or "").lower()
+    if role != "super_admin":
+        base_domain = role.replace("_admin", "").strip()
+        conns = [c for c in conns if str(c.get("domain") or "").lower().strip() == base_domain]
+    return {"connections": conns}
+
+@app.post("/api/admin/database_connections")
+def add_database_connection(payload: DBConnectionCreate, user: dict = Depends(require_admin)):
+    import uuid
+    conns = get_db_connections_data()
+    role = str(user.get("role") or "").lower()
+    domain = payload.domain if role == "super_admin" else role.replace("_admin", "")
+    new_conn = {
+        "id": f"conn_{uuid.uuid4().hex[:8]}",
+        "name": payload.name,
+        "db_type": payload.db_type,
+        "uri": payload.uri,
+        "domain": domain,
+        "status": "Connected",
+        "last_sync": "Just now",
+        "tables": payload.tables or ["public_records", "metadata"]
+    }
+    conns.append(new_conn)
+    save_db_connections_data(conns)
+    return {"status": "success", "connection": new_conn}
+
+@app.post("/api/admin/database_connections/{conn_id}/sync")
+def sync_database_connection(conn_id: str, user: dict = Depends(require_admin)):
+    conns = get_db_connections_data()
+    for c in conns:
+        if c["id"] == conn_id:
+            c["last_sync"] = "Just now"
+            c["status"] = "Connected"
+    save_db_connections_data(conns)
+    return {"status": "success"}
+
+@app.delete("/api/admin/database_connections/{conn_id}")
+def remove_database_connection(conn_id: str, user: dict = Depends(require_admin)):
+    conns = get_db_connections_data()
+    conns = [c for c in conns if c["id"] != conn_id]
+    save_db_connections_data(conns)
+    return {"status": "success"}
 
 if __name__ == "__main__":
     import uvicorn

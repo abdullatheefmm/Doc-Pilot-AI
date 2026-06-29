@@ -1,21 +1,150 @@
-import React, { useState, useEffect } from 'react';
-import { Activity, Users, Shield, Database, Trash2, Download, Check, AlertTriangle, Play, Pause, FileText, CheckCircle, Search, RefreshCw, Network } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Activity, Users, Shield, Database, Trash2, Download, Check, AlertTriangle, Play, Pause, FileText, CheckCircle, Search, RefreshCw, Network, Briefcase, DollarSign, Cpu, Scale, ChevronDown, Building2, Layers } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Legend, PieChart, Pie, Cell } from 'recharts';
 import MLOpsDashboard from './MLOpsDashboard';
 
 import CustomDropdown from './CustomDropdown';
 import KnowledgeGraphViewer from './KnowledgeGraphViewer';
 
-export default function AdminDashboard({ session, showToast }) {
+const StatusDropdown = ({ status, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const config = {
+    active: { label: 'Active', color: '#22c55e', bg: 'rgba(34,197,94,0.12)', border: 'rgba(34,197,94,0.3)' },
+    pending: { label: 'Pending', color: '#3b82f6', bg: 'rgba(59,130,246,0.12)', border: 'rgba(59,130,246,0.3)' },
+    revoked: { label: 'Revoked', color: '#ef4444', bg: 'rgba(239,68,68,0.12)', border: 'rgba(239,68,68,0.3)' }
+  };
+
+  const cur = config[status] || config.active;
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 20,
+          background: cur.bg, color: cur.color, border: `1px solid ${cur.border}`,
+          cursor: 'pointer', fontWeight: 600, fontSize: '0.8rem', transition: 'all 0.2s ease',
+          outline: 'none', boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+        }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: cur.color, display: 'inline-block' }} />
+        {cur.label}
+        <span style={{ fontSize: '0.65rem', opacity: 0.8, marginLeft: 2 }}>▼</span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: 6, background: '#1c1c1f',
+          border: '1px solid rgba(255,255,255,0.15)', borderRadius: 12, padding: 6, zIndex: 50,
+          boxShadow: '0 12px 28px rgba(0,0,0,0.7)', minWidth: 110, animation: 'fadeIn 0.15s ease'
+        }}>
+          {Object.entries(config).map(([key, val]) => (
+            <div
+              key={key}
+              onClick={() => { onChange(key); setOpen(false); }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8,
+                cursor: 'pointer', fontSize: '0.8rem', fontWeight: status === key ? 700 : 500,
+                color: val.color, background: status === key ? 'rgba(255,255,255,0.08)' : 'transparent',
+                transition: 'background 0.15s ease'
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: val.color }} />
+              {val.label}
+              {status === key && <Check size={14} style={{ marginLeft: 'auto' }} />}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default function AdminDashboard({ session, userRole = 'super_admin', showToast }) {
+  const isSuperAdmin = userRole === 'super_admin';
+  const baseDomain = isSuperAdmin ? 'all' : String(userRole).replace('_admin', '');
+  const domainName = isSuperAdmin ? 'Super Admin' : baseDomain.charAt(0).toUpperCase() + baseDomain.slice(1);
+
+  const domainBranding = {
+    engineering: {
+      title: "Engineering Domain Administration",
+      subtitle: "Oversee software architecture docs, technical specs, developer identities, and security alerts.",
+      icon: <Cpu color="#3b82f6" size={28} />,
+      accent: "#3b82f6",
+      badgeText: "Engineering Lead"
+    },
+    hr: {
+      title: "HR & Policy Administration",
+      subtitle: "Manage employee handbooks, onboarding policies, HR personnel records, and compliance audit logs.",
+      icon: <Users color="#ec4899" size={28} />,
+      accent: "#ec4899",
+      badgeText: "HR Director"
+    },
+    finance: {
+      title: "Finance & Accounting Administration",
+      subtitle: "Govern financial statements, tax records, auditor permissions, and access logs securely.",
+      icon: <DollarSign color="#10b981" size={28} />,
+      accent: "#10b981",
+      badgeText: "Finance Controller"
+    },
+    legal: {
+      title: "Legal & Compliance Administration",
+      subtitle: "Monitor contracts, regulatory governance filings, legal team access, and confidentiality alerts.",
+      icon: <Scale color="#8b5cf6" size={28} />,
+      accent: "#8b5cf6",
+      badgeText: "General Counsel"
+    },
+    product: {
+      title: "Product Management Administration",
+      subtitle: "Supervise roadmap documents, PRDs, product manager access, and knowledge base integrity.",
+      icon: <Briefcase color="#f59e0b" size={28} />,
+      accent: "#f59e0b",
+      badgeText: "Product Lead"
+    },
+    general: {
+      title: "General Knowledge Administration",
+      subtitle: "Manage organization-wide shared documents, general user profiles, and operational queries.",
+      icon: <FileText color="#06b6d4" size={28} />,
+      accent: "#06b6d4",
+      badgeText: "Domain Admin"
+    }
+  };
+
+  const currentBranding = isSuperAdmin ? {
+    title: "Super Admin Control Center",
+    subtitle: "Manage system users, grant access across all departments, and view global audit trails.",
+    icon: <Shield color="var(--accent-color)" size={28} />,
+    accent: "var(--accent-color)",
+    badgeText: "Global Super Admin"
+  } : (domainBranding[baseDomain] || {
+    title: `${domainName} Domain Administration`,
+    subtitle: `Manage ${domainName} department users, documents, security alerts, and audit logs.`,
+    icon: <Building2 color="#06b6d4" size={28} />,
+    accent: "#06b6d4",
+    badgeText: `${domainName} Admin`
+  });
+
   const [activeTab, setActiveTab] = useState('dashboard');
   const [userCategory, setUserCategory] = useState('users');
   const [loading, setLoading] = useState(false);
-  
-  const [analytics, setAnalytics] = useState(null);
+   const [analytics, setAnalytics] = useState(null);
   const [users, setUsers] = useState([]);
   const [logs, setLogs] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [securityAlerts, setSecurityAlerts] = useState([]);
+  const [dbConnections, setDbConnections] = useState([]);
+  const [showAddDbModal, setShowAddDbModal] = useState(false);
+  const [newDbForm, setNewDbForm] = useState({ name: '', db_type: 'PostgreSQL', uri: '', domain: isSuperAdmin ? 'engineering' : baseDomain, tables: '' });
   
   const [autoSuspendEnabled, setAutoSuspendEnabled] = useState(false);
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, userId: null, userName: '' });
@@ -30,8 +159,7 @@ export default function AdminDashboard({ session, showToast }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [docSearchQuery, setDocSearchQuery] = useState('');
   const [logSearchQuery, setLogSearchQuery] = useState('');
-  const [domainFilter, setDomainFilter] = useState('all');
-
+  const [domainFilter, setDomainFilter] = useState(isSuperAdmin ? 'all' : baseDomain);
   const API_URL = 'http://127.0.0.1:8000/api';
 
   const fetchData = async () => {
@@ -39,12 +167,13 @@ export default function AdminDashboard({ session, showToast }) {
     try {
       const hdrs = { 'Authorization': `Bearer ${session.access_token}` };
       
-      const [anRes, usRes, logRes, docRes, secRes] = await Promise.all([
+      const [anRes, usRes, logRes, docRes, secRes, dbRes] = await Promise.all([
         fetch(`${API_URL}/admin/analytics`, { headers: hdrs }),
         fetch(`${API_URL}/admin/users`, { headers: hdrs }),
         fetch(`${API_URL}/admin/audit_logs`, { headers: hdrs }),
         fetch(`${API_URL}/documents`, { headers: hdrs }),
-        fetch(`${API_URL}/admin/security_alerts`, { headers: hdrs })
+        fetch(`${API_URL}/admin/security_alerts`, { headers: hdrs }),
+        fetch(`${API_URL}/admin/database_connections`, { headers: hdrs })
       ]);
       
       if(anRes.ok) setAnalytics(await anRes.json());
@@ -52,9 +181,47 @@ export default function AdminDashboard({ session, showToast }) {
       if(logRes.ok) setLogs((await logRes.json()).logs || []);
       if(docRes.ok) setDocuments((await docRes.json()).documents || []);
       if(secRes.ok) setSecurityAlerts((await secRes.json()).alerts || []);
+      if(dbRes.ok) setDbConnections((await dbRes.json()).connections || []);
       
     } catch(e) { console.error(e); }
     finally { setLoading(false); }
+  };
+
+  const addDbConnection = async (e) => {
+    e.preventDefault();
+    if(!newDbForm.name || !newDbForm.uri) return;
+    try {
+      const hdrs = { 'Authorization': `Bearer ${session.access_token}`, 'Content-Type': 'application/json' };
+      const tablesList = newDbForm.tables ? newDbForm.tables.split(',').map(t => t.trim()).filter(Boolean) : [];
+      const res = await fetch(`${API_URL}/admin/database_connections`, {
+        method: 'POST', headers: hdrs,
+        body: JSON.stringify({ ...newDbForm, tables: tablesList })
+      });
+      if(res.ok) {
+        showToast("Database connection added successfully!");
+        setShowAddDbModal(false);
+        setNewDbForm({ name: '', db_type: 'PostgreSQL', uri: '', domain: isSuperAdmin ? 'engineering' : baseDomain, tables: '' });
+        fetchData();
+      }
+    } catch(err) { console.error(err); }
+  };
+
+  const syncDbConnection = async (id) => {
+    try {
+      const hdrs = { 'Authorization': `Bearer ${session.access_token}` };
+      await fetch(`${API_URL}/admin/database_connections/${id}/sync`, { method: 'POST', headers: hdrs });
+      showToast("Triggered data synchronization!");
+      fetchData();
+    } catch(err) { console.error(err); }
+  };
+
+  const deleteDbConnection = async (id) => {
+    try {
+      const hdrs = { 'Authorization': `Bearer ${session.access_token}` };
+      await fetch(`${API_URL}/admin/database_connections/${id}`, { method: 'DELETE', headers: hdrs });
+      showToast("Database connection removed.");
+      fetchData();
+    } catch(err) { console.error(err); }
   };
 
   useEffect(() => {
@@ -93,6 +260,24 @@ export default function AdminDashboard({ session, showToast }) {
       });
       if (res.ok) {
         setUsers(users.map(u => u.user_id === userId ? { ...u, status: newStatus } : u));
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const updateUserRole = async (userId, currentRole) => {
+    const isCurrentlyAdmin = String(currentRole).endsWith('_admin');
+    const baseDom = isCurrentlyAdmin ? currentRole.replace('_admin', '') : currentRole;
+    const targetRole = isCurrentlyAdmin ? baseDom : `${baseDom}_admin`;
+    
+    try {
+      const res = await fetch(`${API_URL}/admin/users/${userId}/role`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${session.access_token}` },
+        body: JSON.stringify({ role: targetRole })
+      });
+      if (res.ok) {
+        setUsers(users.map(u => u.user_id === userId ? { ...u, role: targetRole } : u));
+        if (showToast) showToast(`User role updated to ${targetRole}`, 'success');
       }
     } catch (e) { console.error(e); }
   };
@@ -184,10 +369,11 @@ export default function AdminDashboard({ session, showToast }) {
 
   // Filters
   const filteredUsers = users.filter(u => {
-    if (userCategory === 'admins' && u.role !== 'super_admin') return false;
-    if (userCategory === 'users' && u.role === 'super_admin') return false;
+    const isAdm = u.role === 'super_admin' || String(u.role).endsWith('_admin');
+    if (userCategory === 'admins' && !isAdm) return false;
+    if (userCategory === 'users' && isAdm) return false;
     
-    if (domainFilter !== 'all' && u.role !== domainFilter && u.role !== 'super_admin') return false;
+    if (domainFilter !== 'all' && String(u.role).replace('_admin', '') !== domainFilter && u.role !== 'super_admin') return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (u.full_name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q) || u.employee_id?.toLowerCase().includes(q));
@@ -223,10 +409,20 @@ export default function AdminDashboard({ session, showToast }) {
     <div style={{ padding: 32, maxWidth: 1400, margin: '0 auto', color: 'var(--text-color)' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
         <div>
-          <h1 style={{ fontSize: '1.8rem', margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Shield color="var(--accent-color)" size={28} /> Super Admin Control Center
-          </h1>
-          <p style={{ color: 'var(--muted-text)', margin: 0 }}>Manage system users, grant access, and view audit trails.</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <span style={{ display: 'flex', alignItems: 'center', padding: 10, borderRadius: 14, background: isSuperAdmin ? 'rgba(59,130,246,0.15)' : `${currentBranding.accent}18`, border: `1px solid ${isSuperAdmin ? 'rgba(59,130,246,0.4)' : currentBranding.accent + '40'}` }}>
+              {currentBranding.icon}
+            </span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <h1 style={{ fontSize: '1.8rem', margin: '0 0 4px 0', fontWeight: 700 }}>{currentBranding.title}</h1>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '3px 10px', borderRadius: 20, background: isSuperAdmin ? 'rgba(59,130,246,0.15)' : `${currentBranding.accent}20`, color: isSuperAdmin ? '#60a5fa' : currentBranding.accent, border: `1px solid ${isSuperAdmin ? 'rgba(59,130,246,0.4)' : currentBranding.accent + '50'}` }}>
+                  {currentBranding.badgeText}
+                </span>
+              </div>
+              <p style={{ color: 'var(--muted-text)', margin: 0, fontSize: '0.9rem' }}>{currentBranding.subtitle}</p>
+            </div>
+          </div>
         </div>
         <button className="secondary-btn" onClick={fetchData} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.05)', color: '#fff', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer' }}>
           <RefreshCw size={16} className={loading ? 'spinning' : ''} /> Refresh
@@ -286,7 +482,61 @@ export default function AdminDashboard({ session, showToast }) {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24, background: 'var(--card-bg-strong)', padding: 6, borderRadius: 16, width: 'max-content' }}>
+      {showAddDbModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, animation: 'fadeIn 0.2s ease' }}>
+          <div style={{ background: 'var(--bg-color)', border: '1px solid rgba(255,255,255,0.15)', padding: 32, borderRadius: 20, maxWidth: 480, width: '90%', boxShadow: '0 20px 40px rgba(0,0,0,0.6)', animation: 'slideIn 0.3s ease' }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.3rem', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Database color="var(--primary-color)" /> Connect External Database
+            </h3>
+            <p style={{ color: 'var(--muted-text)', fontSize: '0.85rem', marginBottom: 24 }}>
+              Connect structured data sources to enrich hybrid domain retrieval and analytics.
+            </p>
+            <form onSubmit={addDbConnection} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted-text)', marginBottom: 6 }}>CONNECTION NAME</label>
+                <input required type="text" placeholder="e.g. Engineering Prod DB" value={newDbForm.name} onChange={e => setNewDbForm({...newDbForm, name: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', outline: 'none' }} />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted-text)', marginBottom: 6 }}>DATABASE TYPE</label>
+                  <select value={newDbForm.db_type} onChange={e => setNewDbForm({...newDbForm, db_type: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: 10, background: '#1c1c1f', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', outline: 'none' }}>
+                    <option value="PostgreSQL">PostgreSQL</option>
+                    <option value="MySQL">MySQL</option>
+                    <option value="Supabase">Supabase / PostgREST</option>
+                    <option value="Snowflake">Snowflake</option>
+                    <option value="MongoDB">MongoDB</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted-text)', marginBottom: 6 }}>TARGET DOMAIN</label>
+                  <select disabled={!isSuperAdmin} value={newDbForm.domain} onChange={e => setNewDbForm({...newDbForm, domain: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: 10, background: '#1c1c1f', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', outline: 'none', opacity: isSuperAdmin ? 1 : 0.7 }}>
+                    <option value="engineering">Engineering</option>
+                    <option value="hr">HR & Policy</option>
+                    <option value="finance">Finance</option>
+                    <option value="legal">Legal Compliance</option>
+                    <option value="product">Product</option>
+                    <option value="general">General</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted-text)', marginBottom: 6 }}>CONNECTION URI / ENDPOINT</label>
+                <input required type="text" placeholder="postgresql://user:password@host:port/dbname" value={newDbForm.uri} onChange={e => setNewDbForm({...newDbForm, uri: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', outline: 'none', fontFamily: 'monospace', fontSize: '0.85rem' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--muted-text)', marginBottom: 6 }}>INDEXED TABLES (COMMA SEPARATED)</label>
+                <input type="text" placeholder="e.g. users, specs, orders" value={newDbForm.tables} onChange={e => setNewDbForm({...newDbForm, tables: e.target.value})} style={{ width: '100%', padding: '10px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', outline: 'none' }} />
+              </div>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 12 }}>
+                <button type="button" onClick={() => setShowAddDbModal(false)} style={{ padding: '10px 20px', borderRadius: 10, background: 'rgba(255,255,255,0.05)', color: 'var(--text-color)', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Cancel</button>
+                <button type="submit" style={{ padding: '10px 20px', borderRadius: 10, background: 'var(--primary-color)', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}>Connect Database</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 12, marginBottom: 24, background: 'var(--card-bg-strong)', padding: 6, borderRadius: 16, width: 'max-content', flexWrap: 'wrap' }}>
         <button className="tab-btn" style={{ background: activeTab === 'dashboard' ? 'var(--card-bg)' : 'transparent', color: activeTab === 'dashboard' ? 'var(--text-color)' : 'var(--muted-text)' }} onClick={() => setActiveTab('dashboard')}>
           <Activity size={16} /> Dashboard
         </button>
@@ -294,7 +544,10 @@ export default function AdminDashboard({ session, showToast }) {
           <Users size={16} /> User Management
         </button>
         <button className="tab-btn" style={{ background: activeTab === 'documents' ? 'var(--card-bg)' : 'transparent', color: activeTab === 'documents' ? 'var(--text-color)' : 'var(--muted-text)' }} onClick={() => setActiveTab('documents')}>
-          <Database size={16} /> Document Management
+          <Layers size={16} /> Document Management
+        </button>
+        <button className="tab-btn" style={{ background: activeTab === 'databases' ? 'var(--card-bg)' : 'transparent', color: activeTab === 'databases' ? 'var(--text-color)' : 'var(--muted-text)' }} onClick={() => setActiveTab('databases')}>
+          <Database size={16} /> Database Connections
         </button>
         <button className="tab-btn" style={{ background: activeTab === 'security' ? 'var(--card-bg)' : 'transparent', color: activeTab === 'security' ? 'var(--text-color)' : 'var(--muted-text)' }} onClick={() => setActiveTab('security')}>
           <Shield size={16} /> Security Alerts
@@ -309,7 +562,7 @@ export default function AdminDashboard({ session, showToast }) {
 
       {activeTab === 'graph' && (
         <div style={{ animation: 'fadeIn 0.3s ease', height: 'calc(100vh - 200px)' }}>
-          <KnowledgeGraphViewer domain="all" token={session?.access_token} refreshTrigger={documents} />
+          <KnowledgeGraphViewer domain={isSuperAdmin ? "all" : baseDomain} token={session?.access_token} refreshTrigger={documents} />
         </div>
       )}
 
@@ -508,17 +761,21 @@ export default function AdminDashboard({ session, showToast }) {
                       <span style={{ color: 'var(--primary-color)', background: 'rgba(59,130,246,0.1)', padding: '4px 10px', borderRadius: 8 }}>{u.role}</span>
                     </td>
                     <td style={{ padding: '12px 8px' }}>
-                      <select 
-                        value={u.status || 'active'} 
-                        onChange={(e) => updateUserStatus(u.user_id, e.target.value)}
-                        style={{ background: 'transparent', color: statusColor, border: 'none', outline: 'none', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem' }}
-                      >
-                        <option value="active" style={{ color: '#fff', background: '#1c1c1f' }}>Active</option>
-                        <option value="pending" style={{ color: '#fff', background: '#1c1c1f' }}>Pending</option>
-                        <option value="revoked" style={{ color: '#fff', background: '#1c1c1f' }}>Revoked</option>
-                      </select>
+                      <StatusDropdown 
+                        status={u.status || 'active'} 
+                        onChange={(newStatus) => updateUserStatus(u.user_id, newStatus)} 
+                      />
                     </td>
-                    <td style={{ padding: '12px 8px', textAlign: 'right' }}>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
+                      {isSuperAdmin && u.role !== 'super_admin' && (
+                        <button 
+                          title={String(u.role).endsWith('_admin') ? "Demote to User" : "Promote to Domain Admin"} 
+                          onClick={() => updateUserRole(u.user_id, u.role)} 
+                          style={{ padding: '4px 10px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 600, background: String(u.role).endsWith('_admin') ? 'rgba(239,68,68,0.1)' : 'rgba(34,197,94,0.1)', color: String(u.role).endsWith('_admin') ? '#ef4444' : '#22c55e', border: 'none', cursor: 'pointer' }}
+                        >
+                          {String(u.role).endsWith('_admin') ? "Demote Admin" : "Promote Admin"}
+                        </button>
+                      )}
                       {u.role !== 'super_admin' && (
                         <button title="Delete User" className="action-icon delete-btn" onClick={() => setDeleteModal({ isOpen: true, userId: u.user_id, userName: u.full_name })} disabled={loading}>
                           <Trash2 size={18} />
@@ -593,6 +850,102 @@ export default function AdminDashboard({ session, showToast }) {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {activeTab === 'databases' && (
+        <div style={{ animation: 'fadeIn 0.3s ease' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
+            <div>
+              <h3 style={{ margin: '0 0 4px 0', fontSize: '1.25rem', display: 'flex', alignItems: 'center', gap: 10 }}>
+                <Database color="var(--primary-color)" /> Connected Domain Data Sources
+              </h3>
+              <p style={{ margin: 0, color: 'var(--muted-text)', fontSize: '0.88rem' }}>
+                Manage live database connections feeding structured records into your RAG pipeline.
+              </p>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {isSuperAdmin && (
+                <CustomDropdown 
+                  value={domainFilter} 
+                  options={[{value: 'all', label: 'All Domains'}, ...domains.map(d => ({value: d, label: d.charAt(0).toUpperCase() + d.slice(1)}))]} 
+                  onChange={setDomainFilter} 
+                />
+              )}
+              <button 
+                onClick={() => setShowAddDbModal(true)}
+                style={{ background: 'var(--primary-color)', color: '#fff', border: 'none', padding: '10px 18px', borderRadius: 10, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', boxShadow: '0 4px 12px rgba(59,130,246,0.3)' }}
+              >
+                + Add Database Connection
+              </button>
+            </div>
+          </div>
+
+          {(() => {
+            const filteredConns = dbConnections.filter(c => {
+              const cDomain = String(c.domain || '').toLowerCase().trim();
+              if (isSuperAdmin) {
+                return domainFilter === 'all' || cDomain === domainFilter.toLowerCase().trim();
+              }
+              return cDomain === baseDomain.toLowerCase().trim();
+            });
+
+            return filteredConns.length === 0 ? (
+              <div style={{ padding: 64, textAlign: 'center', background: 'rgba(255,255,255,0.02)', borderRadius: 16, border: '1px dashed rgba(255,255,255,0.1)' }}>
+                <Database size={48} color="var(--muted-text)" style={{ opacity: 0.5, marginBottom: 16 }} />
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '1.1rem' }}>No External Databases Connected</h4>
+                <p style={{ color: 'var(--muted-text)', fontSize: '0.9rem', maxWidth: 400, margin: '0 auto 20px auto' }}>Connect your structured domain SQL databases to enable hybrid RAG querying alongside uploaded documents.</p>
+                <button onClick={() => setShowAddDbModal(true)} style={{ background: 'rgba(255,255,255,0.08)', color: '#fff', border: '1px solid rgba(255,255,255,0.15)', padding: '8px 16px', borderRadius: 8, fontWeight: 600, cursor: 'pointer' }}>Connect First Database</button>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20 }}>
+                {filteredConns.map((conn, idx) => (
+                  <div key={conn.id || idx} style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 22, display: 'flex', flexDirection: 'column', gap: 16, transition: 'transform 0.2s, border-color 0.2s', animation: `slideIn 0.2s ease ${idx * 0.05}s forwards`, opacity: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                          <span style={{ fontWeight: 700, fontSize: '1.05rem', color: '#fff' }}>{conn.name}</span>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '3px 10px', borderRadius: 12, background: 'rgba(59,130,246,0.12)', color: 'var(--primary-color)' }}>{conn.db_type}</span>
+                      </div>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '4px 10px', borderRadius: 16, background: conn.status === 'Connected' ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)', color: conn.status === 'Connected' ? '#22c55e' : '#f59e0b', border: `1px solid ${conn.status === 'Connected' ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.3)'}`, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: conn.status === 'Connected' ? '#22c55e' : '#f59e0b' }} />
+                        {conn.status}
+                      </span>
+                    </div>
+
+                    <div style={{ background: 'rgba(0,0,0,0.25)', padding: '10px 12px', borderRadius: 10, border: '1px solid rgba(255,255,255,0.04)', fontFamily: 'monospace', fontSize: '0.8rem', color: 'var(--muted-text)', wordBreak: 'break-all' }}>
+                      {conn.uri}
+                    </div>
+
+                    <div>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted-text)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 }}>Indexed Domain & Tables</div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '3px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', color: '#fff' }}>Domain: {conn.domain}</span>
+                        {conn.tables && conn.tables.map((t, i) => (
+                          <span key={i} style={{ fontSize: '0.75rem', padding: '3px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.04)', color: 'var(--muted-text)', border: '1px solid rgba(255,255,255,0.05)' }}>
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--muted-text)' }}>Last synced: {conn.last_sync || 'Never'}</span>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={() => syncDbConnection(conn.id)} title="Sync Now" style={{ padding: '6px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.06)', color: '#fff', border: 'none', cursor: 'pointer', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <RefreshCw size={13} /> Sync
+                        </button>
+                        <button onClick={() => deleteDbConnection(conn.id)} title="Remove Connection" style={{ padding: '6px 10px', borderRadius: 8, background: 'rgba(239,68,68,0.1)', color: '#ef4444', border: 'none', cursor: 'pointer' }}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 

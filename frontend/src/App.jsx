@@ -139,7 +139,7 @@ export default function App() {
   const [userRole, setUserRole] = useState(session?.user?.user_metadata?.role || 'general');
   const [userStatus, setUserStatus] = useState('active'); // Assume active initially unless proven otherwise
   const [userFullName, setUserFullName] = useState(session?.user?.user_metadata?.full_name || 'User Profile');
-  const [activeTab, setActiveTab] = useState(userRole === 'super_admin' ? 'admin' : 'settings');
+  const [activeTab, setActiveTab] = useState(userRole === 'super_admin' || String(userRole).endsWith('_admin') ? 'admin' : 'settings');
 
   useEffect(() => {
     if (session?.user?.id) {
@@ -156,7 +156,8 @@ export default function App() {
               setEditPhone(data.phone_number);
             }
             if (data.status !== 'pending' && data.status !== 'revoked') {
-                if (data.role === 'super_admin') {
+                const isAdm = data.role === 'super_admin' || String(data.role).endsWith('_admin');
+                if (isAdm) {
                   setActiveTab('admin');
                 } else {
                   setActiveDomainFilter(data.role);
@@ -966,7 +967,7 @@ export default function App() {
           <button className={`sidebar-tab ${activeTab === 'settings' ? 'active' : ''}`} onClick={() => handleTabChange('settings')}>Control</button>
           <button className={`sidebar-tab ${activeTab === 'analytics' ? 'active' : ''}`} onClick={() => handleTabChange('analytics')}>Analytics</button>
           <button className={`sidebar-tab ${activeTab === 'kb' ? 'active' : ''}`} onClick={() => handleTabChange('kb')}>Knowledge</button>
-          {userRole === 'super_admin' && (
+          {(userRole === 'super_admin' || String(userRole).endsWith('_admin')) && (
             <button className={`sidebar-tab ${activeTab === 'admin' ? 'active' : ''}`} onClick={() => handleTabChange('admin')} style={{ color: 'var(--accent-color)' }}>Admin</button>
           )}
         </div>
@@ -1282,7 +1283,7 @@ export default function App() {
 
         {activeTab === 'admin' ? (
           <div className="tab-pane active" style={{ flex: 1, overflowY: 'auto', animation: 'fadeIn 0.3s ease' }}>
-            <AdminDashboard session={session} showToast={showToast} />
+            <AdminDashboard session={session} userRole={userRole} showToast={showToast} />
           </div>
         ) : fullScreenAnalytics ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: '32px 24px' }}>
